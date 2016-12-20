@@ -1,9 +1,11 @@
 package main
 
 import (
+	"Lunnel/crypto"
 	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/binary"
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
@@ -76,11 +78,16 @@ func main() {
 	}
 	tlsConfig.ServerName = "www.longxboy.com"
 	tlsConn := tls.Client(stream, tlsConfig)
-	var b []byte
-	for i := 0; i < 200; i++ {
-		b = append(b, []byte("waahahhaahhahahah")...)
+	priv, keyMsg := crypto.GenerateKeyExChange()
+	if keyMsg == nil || priv == nil {
+		panic(fmt.Errorf("error exchange key is nil"))
 	}
-	nWrite, err := tlsConn.Write(b)
+	err = binary.Write(c, binary.LittleEndian, len(msgBytes))
+	if err != nil {
+		return
+	}
+
+	nWrite, err := tlsConn.Write(msgBytes)
 	if err != nil {
 		panic(err)
 	}
