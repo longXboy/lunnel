@@ -1,14 +1,20 @@
 package main
 
 import (
+	lconn "Lunnel/conn"
+	"Lunnel/crypto"
+	"Lunnel/msg"
 	"crypto/sha1"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"time"
 
 	"github.com/klauspost/compress/snappy"
+	"github.com/pkg/errors"
 	kcp "github.com/xtaci/kcp-go"
 	"github.com/xtaci/smux"
 	"golang.org/x/crypto/pbkdf2"
@@ -124,21 +130,34 @@ func handleMux(conn io.ReadWriteCloser) {
 		tlsConfig.ServerName = "www.longxboy.com"
 		tlsConn := tls.Server(stream, tlsConfig)
 
-		var buff []byte = make([]byte, 20000)
-		nRead, err := tlsConn.Read(buff)
-		if err != nil {
-			log.Println(err)
-			return
+		controlConn := lconn.NewControlConn(tlsConn)
+		mType, body, err := controlConn.Read()
+		if mType == msg.TypeClientKeyExchange {
+			var ckem msg.KeyExchangeMsg
+			err = json.Unmarshal(body, &ckem)
+			if err != nil {
+				panic(errors.Wrap(err, "unmarshal KeyExchangeMsg"))
+			}
+			priv, keyMsg := crypto.GenerateKeyExChange()
+			if keyMsg == nil || priv == nil {
+				panic(fmt.Errorf("error exchange key is nil"))
+			}
+			preMasterSecret, err := crypto.ProcessKeyExchange(priv, ckem.CipherText)
+			if err != nil {
+				panic(errors.Wrap(err, "crypto.ProcessKeyExchange"))
+			}
+			fmt.Println(preMasterSecret)
+			skem := msg.KeyExchangeMsg{CipherText: keyMsg}
+			message, err := json.Marshal(skem)
+			if err != nil {
+				panic(errors.Wrap(err, "marshal KeyExchangeMsg"))
+			}
+			err = controlConn.Write(msg.TypeServerKeyExchange, message)
+			if err != nil {
+				panic(err)
+			}
 		}
-		fmt.Println("read:", nRead)
-		nRead, err = tlsConn.Read(buff)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		fmt.Println("read:", nRead)
-		nWrite, err := tlsConn.Write([]byte("xixixixi"))
-		fmt.Println(nWrite)
+		time.Sleep(time.Second)
 		tlsConn.Close()
 	}
 }

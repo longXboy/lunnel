@@ -1,11 +1,13 @@
 package main
 
 import (
+	lconn "Lunnel/conn"
 	"Lunnel/crypto"
+	msg "Lunnel/msg"
 	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/binary"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
@@ -78,25 +80,35 @@ func main() {
 	}
 	tlsConfig.ServerName = "www.longxboy.com"
 	tlsConn := tls.Client(stream, tlsConfig)
+
 	priv, keyMsg := crypto.GenerateKeyExChange()
 	if keyMsg == nil || priv == nil {
 		panic(fmt.Errorf("error exchange key is nil"))
 	}
-	err = binary.Write(c, binary.LittleEndian, len(msgBytes))
+	controlConn := lconn.NewControlConn(tlsConn)
+	ckem := msg.KeyExchangeMsg{CipherText: keyMsg}
+	message, err := json.Marshal(ckem)
 	if err != nil {
-		return
+		panic(errors.Wrap(err, "marshal KeyExchangeMsg"))
 	}
-
-	nWrite, err := tlsConn.Write(msgBytes)
+	err = controlConn.Write(msg.TypeClientKeyExchange, message)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("write:", nWrite)
-	var buff []byte = make([]byte, 32)
-	nRead, err := tlsConn.Read(buff)
-	fmt.Println("read:", nRead)
-	fmt.Println(string(buff[:nRead]))
-	tlsConn.Close()
+	mType, body, err := controlConn.Read()
+	if mType == msg.TypeServerKeyExchange {
+		var skem msg.KeyExchangeMsg
+		err = json.Unmarshal(body, &skem)
+		if err != nil {
+			panic(errors.Wrap(err, "unmarshal KeyExchangeMsg"))
+		}
+		preMasterSecret, err := crypto.ProcessKeyExchange(priv, skem.CipherText)
+		if err != nil {
+			panic(errors.Wrap(err, "crypto.ProcessKeyExchange"))
+		}
+		fmt.Println(preMasterSecret)
+	}
+	controlConn.Close()
 	conn.Close()
 }
 

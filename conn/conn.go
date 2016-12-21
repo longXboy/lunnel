@@ -1,112 +1,70 @@
 package conn
 
 import (
-	"encoding/json"
+	"Lunnel/msg"
+	"fmt"
 	"io"
+
+	"github.com/pkg/errors"
 )
 
-var typeKeyExchange uint8 = 16
-
-type KeyExchangeMsg struct {
-	ciphertext []byte
+func NewControlConn(conn io.ReadWriteCloser) *ControlConn {
+	return &ControlConn{conn: conn}
 }
 
-type Msg struct {
-	raw        []byte
-	ciphertext []byte
-}
-
-func (m *Msg) equal(i interface{}) bool {
-	m1, ok := i.(*Msg)
-	if !ok {
-		return false
-	}
-
-	return bytes.Equal(m.raw, m1.raw) &&
-		bytes.Equal(m.ciphertext, m1.ciphertext)
-}
-
-func (m *Msg) Marshal() []byte {
-	if m.raw != nil {
-		return m.raw
-	}
-	length := len(m.ciphertext)
-	x := make([]byte, length+4)
-	x[0] = typeKeyExchange
-	x[1] = uint8(length >> 16)
-	x[2] = uint8(length >> 8)
-	x[3] = uint8(length)
-	copy(x[4:], m.ciphertext)
-
-	m.raw = x
-	return x
-}
-
-func (m *Msg) Unmarshal(data []byte) bool {
-	m.raw = data
-	if len(data) < 4 {
-		return false
-	}
-	l := int(data[1])<<16 | int(data[2])<<8 | int(data[3])
-	if l != len(data)-4 {
-		return false
-	}
-	m.ciphertext = data[4:]
-	return true
-}
-
-type Conn struct {
+type ControlConn struct {
 	conn io.ReadWriteCloser
 }
 
-func (c *Conn) ReadMsg() (int, interface{}, error) {
-	var header [4]byte
-	nRead, err := c.readWithSize(header)
+func (c *ControlConn) Close() {
+	c.conn.Close()
+}
+
+func (c *ControlConn) Read() (msg.MsgType, []byte, error) {
+	var header []byte = make([]byte, 4)
+	err := c.readInSize(header)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, errors.Wrap(err, "Conn readInSize")
 	}
 	length := int(header[1])<<16 | int(header[2])<<8 | int(header[3])
 	body := make([]byte, length)
-	err = c.readWithSize(body)
+	err = c.readInSize(body)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, errors.Wrap(err, "Conn readInSize")
 	}
-	if header[0] == typeKeyExchange {
-		var data KeyExchange
-		err = json.Unmarshal(body, &data)
-		if err != nil {
-			return 0, nil, err
-		}
-	}
+	return msg.MsgType(header[0]), body, nil
 }
 
-func (c *Conn) WriteMsg(body []byte, bodyType int) error {
+func (c *ControlConn) Write(mtype msg.MsgType, body []byte) error {
 	length := len(body)
+	if length > 16777215 {
+		return fmt.Errorf("write message out of size limit(16777215)")
+	}
 	x := make([]byte, length+4)
-	copy(x[4:], m.ciphertext)
-	var header [4]byte
-	x[0] = bodyType
+	x[0] = uint8(mtype)
 	x[1] = uint8(length >> 16)
 	x[2] = uint8(length >> 8)
 	x[3] = uint8(length)
-	nRead, err := c.conn.Write(x)
+	copy(x[4:], body)
+	_, err := c.conn.Write(x)
 	if err != nil {
-		return 0, nil, err
+		return errors.Wrap(err, "Conn.raw_conn write")
 	}
+	return nil
 }
 
-func (c *Conn) readWithSize(b []byte) error {
+func (c *ControlConn) readInSize(b []byte) error {
 	size := len(b)
 	bLeft := b
 	remain := size
 	for {
-		n, err := c.Read(bufLeft)
+		n, err := c.conn.Read(bLeft)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "Conn.raw_conn read")
 		}
 		remain = remain - n
 		if remain == 0 {
-			break
+			return nil
 		} else {
 			bLeft = bLeft[n:]
 		}
