@@ -3,41 +3,19 @@ package main
 import (
 	lconn "Lunnel/conn"
 	"Lunnel/crypto"
+	"Lunnel/kcp"
 	msg "Lunnel/msg"
-	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net"
 
 	"github.com/klauspost/compress/snappy"
 	"github.com/pkg/errors"
-	kcp "github.com/xtaci/kcp-go"
 	"github.com/xtaci/smux"
-	"golang.org/x/crypto/pbkdf2"
-)
-
-const (
-	noDelay        = 0
-	interval       = 40
-	resend         = 0
-	noCongestion   = 0
-	sockBuf        = 4194304
-	noComp         = true
-	dataShard      = 10
-	parityShard    = 3
-	udpSegmentSize = 1472
-)
-
-var (
-	// VERSION is injected by buildflags
-	VERSION = "SELFBUILD"
-	// SALT is use for pbkdf2 key expansion
-	SALT = "kcp-go"
 )
 
 func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
@@ -66,7 +44,8 @@ func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 }
 
 func main() {
-	conn, err := createConn()
+	fmt.Println("open conn")
+	conn, err := createConn(true)
 	if err != nil {
 		panic(err)
 	}
@@ -139,33 +118,15 @@ func (c *compStream) Close() error {
 	return c.conn.Close()
 }
 
-func createConn() (*smux.Session, error) {
-	pass := pbkdf2.Key([]byte("asdnanan"), []byte(SALT), 4096, 32, sha1.New)
-	block, _ := kcp.NewNoneBlockCrypt(pass)
-	kcpconn, err := kcp.DialWithOptions("192.168.100.103:8888", block, dataShard, parityShard)
+func createConn(noComp bool) (*smux.Session, error) {
+
+	kcpconn, err := kcp.Dial("www.longxboy.com:8080")
 	if err != nil {
-		return nil, errors.Wrap(err, "createConn()")
+		return nil, errors.Wrap(err, "kcp dial")
 	}
-	kcpconn.SetStreamMode(true)
-	kcpconn.SetNoDelay(noDelay, interval, resend, noCongestion)
-	kcpconn.SetWindowSize(128, 1024)
-	kcpconn.SetMtu(udpSegmentSize)
-	kcpconn.SetACKNoDelay(true)
-	kcpconn.SetKeepAlive(10)
-
-	if err := kcpconn.SetDSCP(0); err != nil {
-		log.Println("SetDSCP:", err)
-	}
-	if err := kcpconn.SetReadBuffer(sockBuf); err != nil {
-		log.Println("SetReadBuffer:", err)
-	}
-	if err := kcpconn.SetWriteBuffer(sockBuf); err != nil {
-		log.Println("SetWriteBuffer:", err)
-	}
-
 	// stream multiplex
 	smuxConfig := smux.DefaultConfig()
-	smuxConfig.MaxReceiveBuffer = sockBuf
+	smuxConfig.MaxReceiveBuffer = kcp.SockBuf
 	var session *smux.Session
 	if noComp {
 		session, err = smux.Client(kcpconn, smuxConfig)
@@ -173,7 +134,7 @@ func createConn() (*smux.Session, error) {
 		session, err = smux.Client(newCompStream(kcpconn), smuxConfig)
 	}
 	if err != nil {
-		return nil, errors.Wrap(err, "createConn()")
+		return nil, errors.Wrap(err, "smux wrap conn failed")
 	}
 	return session, nil
 }
