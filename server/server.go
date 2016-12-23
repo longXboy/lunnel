@@ -3,8 +3,8 @@ package main
 import (
 	lconn "Lunnel/conn"
 	"Lunnel/crypto"
+	"Lunnel/kcp"
 	"Lunnel/msg"
-	"crypto/sha1"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -15,9 +15,7 @@ import (
 
 	"github.com/klauspost/compress/snappy"
 	"github.com/pkg/errors"
-	kcp "github.com/xtaci/kcp-go"
 	"github.com/xtaci/smux"
-	"golang.org/x/crypto/pbkdf2"
 )
 
 const (
@@ -68,32 +66,13 @@ func newCompStream(conn net.Conn) *compStream {
 }
 
 func main() {
-	pass := pbkdf2.Key([]byte("asdnanan"), []byte(SALT), 4096, 32, sha1.New)
-	block, _ := kcp.NewNoneBlockCrypt(pass)
-	lis, err := kcp.ListenWithOptions("192.168.100.103:8888", block, dataShard, parityShard)
+	fmt.Println("listening")
+	lis, err := kcp.Listen("www.longxboy.com:8080")
 	if err != nil {
 		panic(err)
 	}
-
-	if err := lis.SetDSCP(0); err != nil {
-		log.Println("SetDSCP:", err)
-	}
-	if err := lis.SetReadBuffer(sockBuf); err != nil {
-		log.Println("SetReadBuffer:", err)
-	}
-	if err := lis.SetWriteBuffer(sockBuf); err != nil {
-		log.Println("SetWriteBuffer:", err)
-	}
 	for {
-		if conn, err := lis.AcceptKCP(); err == nil {
-			log.Println("remote address:", conn.RemoteAddr())
-			conn.SetStreamMode(true)
-			conn.SetNoDelay(noDelay, interval, resend, noCongestion)
-			conn.SetMtu(udpSegmentSize)
-			conn.SetWindowSize(1024, 1024)
-			conn.SetACKNoDelay(true)
-			conn.SetKeepAlive(10)
-
+		if conn, err := lis.Accept(); err == nil {
 			if noComp {
 				go handleMux(conn)
 			} else {
