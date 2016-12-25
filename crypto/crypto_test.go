@@ -43,3 +43,10 @@ func Test_generateMasterKey(t *testing.T) {
 		return
 	}
 }
+
+func Test_generateUUID(t *testing.T) {
+	u := GenUUID()
+	if len(u.Hex()) != 36 {
+		t.Errorf("uuid len not equal 46")
+	}
+}

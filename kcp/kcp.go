@@ -1,7 +1,6 @@
 package kcp
 
 import (
-	"fmt"
 	"net"
 
 	"github.com/pkg/errors"
@@ -22,7 +21,6 @@ var (
 func Dial(addr string) (net.Conn, error) {
 	block, _ := kcp.NewNoneBlockCrypt([]byte{12})
 	kcpconn, err := kcp.DialWithOptions(addr, block, dataShard, parityShard)
-	fmt.Println("conn created!", err)
 	if err != nil {
 		return nil, errors.Wrap(err, "create kcpConn")
 	}
@@ -36,6 +34,7 @@ func Dial(addr string) (net.Conn, error) {
 	if err := kcpconn.SetDSCP(0); err != nil {
 		return nil, errors.Wrap(err, "kcpConn SetDSCP")
 	}
+
 	if err := kcpconn.SetReadBuffer(SockBuf); err != nil {
 		return nil, errors.Wrap(err, "kcpConn SetReadBuffer")
 	}

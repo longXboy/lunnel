@@ -1,7 +1,7 @@
 package main
 
 import (
-	lconn "Lunnel/conn"
+	"Lunnel/control"
 	"Lunnel/crypto"
 	"Lunnel/kcp"
 	msg "Lunnel/msg"
@@ -12,10 +12,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"time"
 
 	"github.com/klauspost/compress/snappy"
 	"github.com/pkg/errors"
-	"github.com/xtaci/smux"
 )
 
 func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
@@ -44,51 +44,104 @@ func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 }
 
 func main() {
-	fmt.Println("open conn")
-	conn, err := createConn(true)
+	conn, err := createConn("www.longxboy.com:8080", true)
 	if err != nil {
 		panic(err)
 	}
-	stream, err := conn.OpenStream()
+	/*stream, err := conn.OpenStream()
 	if err != nil {
 		panic(err)
-	}
+	}*/
 	tlsConfig, err := LoadTLSConfig([]string{"./ec.crt"})
 	if err != nil {
 		panic(err)
 	}
 	tlsConfig.ServerName = "www.longxboy.com"
-	tlsConn := tls.Client(stream, tlsConfig)
+	tlsConn := tls.Client(conn, tlsConfig)
 
 	priv, keyMsg := crypto.GenerateKeyExChange()
 	if keyMsg == nil || priv == nil {
 		panic(fmt.Errorf("error exchange key is nil"))
 	}
-	controlConn := lconn.NewControlConn(tlsConn)
+	//这里应该将tlsconn封装在controller中，这样升级之后可以立刻defer close
+	ctl := control.NewControlConn(tlsConn)
+	defer ctl.Close()
+
 	ckem := msg.KeyExchangeMsg{CipherText: keyMsg}
 	message, err := json.Marshal(ckem)
 	if err != nil {
 		panic(errors.Wrap(err, "marshal KeyExchangeMsg"))
 	}
-	err = controlConn.Write(msg.TypeClientKeyExchange, message)
+	err = ctl.Write(msg.TypeClientKeyExchange, message)
 	if err != nil {
 		panic(err)
 	}
-	mType, body, err := controlConn.Read()
+	mType, body, err := ctl.Read()
+	if err != nil {
+		panic(err)
+	}
+	var preMasterSecret []byte
 	if mType == msg.TypeServerKeyExchange {
 		var skem msg.KeyExchangeMsg
 		err = json.Unmarshal(body, &skem)
 		if err != nil {
 			panic(errors.Wrap(err, "unmarshal KeyExchangeMsg"))
 		}
-		preMasterSecret, err := crypto.ProcessKeyExchange(priv, skem.CipherText)
+		preMasterSecret, err = crypto.ProcessKeyExchange(priv, skem.CipherText)
 		if err != nil {
 			panic(errors.Wrap(err, "crypto.ProcessKeyExchange"))
 		}
 		fmt.Println(preMasterSecret)
+		ctl.PreMasterSecret = preMasterSecret
+	} else {
+		panic(fmt.Errorf("invalid msg type expect:%v recv:%v", msg.TypeServerKeyExchange, mType))
 	}
-	controlConn.Close()
-	conn.Close()
+	mType, body, err = ctl.Read()
+	if err != nil {
+		panic(err)
+	}
+
+	if mType == msg.TypeClientIdGenerate {
+		var cidm msg.ClientIdGenerate
+		err = json.Unmarshal(body, &cidm)
+		if err != nil {
+			panic(errors.Wrap(err, "unmarshal ClientIdGenerate"))
+		}
+		ctl.ClientId = cidm.ClientId
+		fmt.Println("client_id:", ctl.ClientId)
+	} else {
+		panic(fmt.Errorf("invalid msg type expect:%v recv:%v", msg.TypeClientIdGenerate, mType))
+	}
+
+	pipeConn, err := createConn("www.longxboy.com:8081", true)
+	if err != nil {
+		panic(err)
+	}
+	pipe := control.NewPipe(pipeConn)
+	defer pipe.Close()
+	uuid := pipe.GenerateUUID()
+	var uuidm msg.PipeHandShake
+	uuidm.PipeUUID = uuid
+	uuidm.ClientId = ctl.ClientId
+	message, err = json.Marshal(uuidm)
+	if err != nil {
+		panic(errors.Wrap(err, "unmarshal PipeUUIdGenerate"))
+	}
+	err = pipe.Write(msg.TypePipeHandShake, message)
+	if err != nil {
+		panic(err)
+	}
+	prf := crypto.NewPrf12()
+	var masterKey []byte = make([]byte, 16)
+	uuidmar := make([]byte, 16)
+	for i := range uuidm.PipeUUID {
+		uuidmar[i] = uuidm.PipeUUID[i]
+	}
+	fmt.Println("uuid:", uuidmar)
+
+	prf(masterKey, preMasterSecret, []byte(fmt.Sprintf("%d", ctl.ClientId)), uuidmar)
+	fmt.Println("masterKey:", masterKey)
+	time.Sleep(time.Second * 3)
 }
 
 type compStream struct {
@@ -118,14 +171,14 @@ func (c *compStream) Close() error {
 	return c.conn.Close()
 }
 
-func createConn(noComp bool) (*smux.Session, error) {
-
-	kcpconn, err := kcp.Dial("www.longxboy.com:8080")
+func createConn(addr string, noComp bool) (net.Conn, error) {
+	fmt.Println("open conn:", addr)
+	kcpconn, err := kcp.Dial(addr)
 	if err != nil {
 		return nil, errors.Wrap(err, "kcp dial")
 	}
 	// stream multiplex
-	smuxConfig := smux.DefaultConfig()
+	/*smuxConfig := smux.DefaultConfig()
 	smuxConfig.MaxReceiveBuffer = kcp.SockBuf
 	var session *smux.Session
 	if noComp {
@@ -135,6 +188,6 @@ func createConn(noComp bool) (*smux.Session, error) {
 	}
 	if err != nil {
 		return nil, errors.Wrap(err, "smux wrap conn failed")
-	}
-	return session, nil
+	}*/
+	return kcpconn, nil
 }
