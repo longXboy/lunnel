@@ -10,7 +10,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-var currentClientId uint64 = 0
+var currentClientID uint64 = 0
 var maxPipeNumPerControl uint = 8
 
 var ControlMapLock sync.RWMutex
@@ -25,12 +25,12 @@ type Control struct {
 	pipes       []Pipe
 
 	PreMasterSecret []byte
-	ClientId        uint64
+	ClientID        uint64
 }
 
 func (c *Control) GenerateClientId() uint64 {
-	c.ClientId = atomic.AddUint64(&currentClientId, 1)
-	return c.ClientId
+	c.ClientID = atomic.AddUint64(&currentClientID, 1)
+	return c.ClientID
 }
 
 func (c *Control) Close() error {

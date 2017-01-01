@@ -13,6 +13,7 @@ import (
 
 	"github.com/klauspost/compress/snappy"
 	"github.com/pkg/errors"
+	"github.com/xtaci/smux"
 )
 
 const (
@@ -178,13 +179,13 @@ func handleControl(conn net.Conn) {
 		if err != nil {
 			panic(errors.Wrap(err, "marshal ClientIdGenerate"))
 		}
-		fmt.Println("client_id:", ctl.ClientId)
+		fmt.Println("client_id:", ctl.ClientID)
 		err = ctl.Write(msg.TypeClientIdGenerate, message)
 		if err != nil {
 			panic(err)
 		}
 		control.ControlMapLock.Lock()
-		control.ControlMap[ctl.ClientId] = ctl
+		control.ControlMap[ctl.ClientID] = ctl
 		control.ControlMapLock.Unlock()
 
 	} else {
@@ -207,20 +208,62 @@ func handlePipe(conn net.Conn) {
 		if err != nil {
 			panic(errors.Wrap(err, "unmarshal PipeUUIdGenerate"))
 		}
-		p.UUID = h.PipeUUID
+		p.ID = h.PipeID
 
 		control.ControlMapLock.RLock()
-		ctl := control.ControlMap[h.ClientId]
+		ctl := control.ControlMap[h.ClientID]
 		control.ControlMapLock.RUnlock()
 		prf := crypto.NewPrf12()
 		var masterKey []byte = make([]byte, 16)
 		uuid := make([]byte, 16)
 		for i := range uuid {
-			uuid[i] = h.PipeUUID[i]
+			uuid[i] = h.PipeID[i]
 		}
 		fmt.Println("uuid:", uuid)
-		prf(masterKey, ctl.PreMasterSecret, []byte(fmt.Sprintf("%d", h.ClientId)), uuid)
+		prf(masterKey, ctl.PreMasterSecret, []byte(fmt.Sprintf("%d", h.ClientID)), uuid)
 		fmt.Println("masterKey:", masterKey)
+
+		cryptoConn, err := crypto.NewCryptoConn(conn, masterKey)
+		if err != nil {
+			panic(err)
+		}
+
+		smuxConfig := smux.DefaultConfig()
+		smuxConfig.MaxReceiveBuffer = 4194304
+		mux, err := smux.Server(cryptoConn, smuxConfig)
+		if err != nil {
+			panic(err)
+			return
+		}
+		defer mux.Close()
+		for {
+			stream, err := mux.AcceptStream()
+			if err != nil {
+				panic(err)
+				return
+			}
+
+			go func() {
+				var buf []byte = make([]byte, 1024)
+				_, err := stream.Read(buf)
+				if err != nil {
+					panic(err)
+				}
+				fmt.Println("server read  ", string(buf))
+
+				_, err = stream.Write([]byte("xxxxxxxxxx"))
+				if err != nil {
+					panic(err)
+				}
+				time.Sleep(time.Second)
+				_, err = stream.Write([]byte("asdasdas11xxxxxxxxxxxxxx111111111111111111111111111111dasd"))
+				if err != nil {
+					panic(err)
+				}
+				time.Sleep(time.Second)
+			}()
+		}
+
 	}
 
 	time.Sleep(time.Second * 3)

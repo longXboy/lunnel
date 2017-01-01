@@ -18,10 +18,10 @@ type KeyExchangeMsg struct {
 }
 
 type ClientIdGenerate struct {
-	ClientId uint64
+	ClientID uint64
 }
 
 type PipeHandShake struct {
-	PipeUUID crypto.UUID
-	ClientId uint64
+	PipeID   crypto.UUID
+	ClientID uint64
 }

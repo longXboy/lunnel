@@ -18,12 +18,12 @@ func NewPipe(conn net.Conn) *Pipe {
 type Pipe struct {
 	pipeConn net.Conn
 
-	UUID crypto.UUID
+	ID crypto.UUID
 }
 
 func (p *Pipe) GenerateUUID() crypto.UUID {
-	p.UUID = crypto.GenUUID()
-	return p.UUID
+	p.ID = crypto.GenUUID()
+	return p.ID
 }
 
 func (p *Pipe) Close() error {

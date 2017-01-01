@@ -30,7 +30,7 @@ func Test_exchangePreMasterKey(t *testing.T) {
 func Test_generateMasterKey(t *testing.T) {
 	preMasterKey := []byte{37, 31, 38, 235, 238, 241, 119, 224, 84, 162, 114, 93, 47, 155, 86, 130, 37, 220, 118, 217, 82, 142, 125, 203, 141, 6, 129, 193, 251, 191, 104, 152}
 
-	prfunc := newPrf12()
+	prfunc := NewPrf12()
 	var seed []byte = make([]byte, 16)
 	randBytes(seed)
 	var result []byte = make([]byte, 16)

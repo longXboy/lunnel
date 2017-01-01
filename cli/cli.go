@@ -16,6 +16,7 @@ import (
 
 	"github.com/klauspost/compress/snappy"
 	"github.com/pkg/errors"
+	"github.com/xtaci/smux"
 )
 
 func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
@@ -107,8 +108,8 @@ func main() {
 		if err != nil {
 			panic(errors.Wrap(err, "unmarshal ClientIdGenerate"))
 		}
-		ctl.ClientId = cidm.ClientId
-		fmt.Println("client_id:", ctl.ClientId)
+		ctl.ClientID = cidm.ClientID
+		fmt.Println("client_id:", ctl.ClientID)
 	} else {
 		panic(fmt.Errorf("invalid msg type expect:%v recv:%v", msg.TypeClientIdGenerate, mType))
 	}
@@ -121,8 +122,8 @@ func main() {
 	defer pipe.Close()
 	uuid := pipe.GenerateUUID()
 	var uuidm msg.PipeHandShake
-	uuidm.PipeUUID = uuid
-	uuidm.ClientId = ctl.ClientId
+	uuidm.PipeID = uuid
+	uuidm.ClientID = ctl.ClientID
 	message, err = json.Marshal(uuidm)
 	if err != nil {
 		panic(errors.Wrap(err, "unmarshal PipeUUIdGenerate"))
@@ -134,13 +135,47 @@ func main() {
 	prf := crypto.NewPrf12()
 	var masterKey []byte = make([]byte, 16)
 	uuidmar := make([]byte, 16)
-	for i := range uuidm.PipeUUID {
-		uuidmar[i] = uuidm.PipeUUID[i]
+	for i := range uuidm.PipeID {
+		uuidmar[i] = uuidm.PipeID[i]
 	}
 	fmt.Println("uuid:", uuidmar)
 
-	prf(masterKey, preMasterSecret, []byte(fmt.Sprintf("%d", ctl.ClientId)), uuidmar)
+	prf(masterKey, preMasterSecret, []byte(fmt.Sprintf("%d", ctl.ClientID)), uuidmar)
 	fmt.Println("masterKey:", masterKey)
+
+	cryptoConn, err := crypto.NewCryptoConn(pipeConn, masterKey)
+	if err != nil {
+		panic(err)
+	}
+	smuxConfig := smux.DefaultConfig()
+	smuxConfig.MaxReceiveBuffer = 4194304
+	sess, err := smux.Client(cryptoConn, smuxConfig)
+	if err != nil {
+		panic(err)
+	}
+	defer sess.Close()
+	stream, err := sess.OpenStream()
+	if err != nil {
+		panic(err)
+	}
+	defer stream.Close()
+
+	_, err = stream.Write([]byte("hehehenidaye"))
+	if err != nil {
+		panic(err)
+	}
+	var buf []byte = make([]byte, 64)
+	_, err = stream.Read(buf)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(buf))
+	buf = make([]byte, 64)
+	_, err = stream.Read(buf)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(buf))
 	time.Sleep(time.Second * 3)
 }
 
