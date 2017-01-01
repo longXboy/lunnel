@@ -8,7 +8,9 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/klauspost/compress/snappy"
@@ -125,71 +127,13 @@ func main() {
 }
 
 func handleControl(conn net.Conn) {
-	/*smuxConfig := smux.DefaultConfig()
-	smuxConfig.MaxReceiveBuffer = sockBuf
-	mux, err := smux.Server(conn, smuxConfig)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	defer mux.Close()
-	/*stream, err := mux.AcceptStream()
 
-	if err != nil {
-		log.Println("accpect failed!", err)
-		return
-	}*/
-
-	//这里应该将conn封装在controller中，这样升级之后可以立刻defer close
-	ctl := control.NewControlConn(conn)
+	ctl := control.NewControl(conn)
 	defer ctl.Close()
 
-	mType, body, err := ctl.Read()
+	err := ctl.ServerHandShake()
 	if err != nil {
-		panic(err)
-	}
-	if mType == msg.TypeClientKeyExchange {
-		var ckem msg.KeyExchangeMsg
-		err = json.Unmarshal(body, &ckem)
-		if err != nil {
-			panic(errors.Wrap(err, "unmarshal KeyExchangeMsg"))
-		}
-		priv, keyMsg := crypto.GenerateKeyExChange()
-		if keyMsg == nil || priv == nil {
-			panic(fmt.Errorf("error exchange key is nil"))
-		}
-		preMasterSecret, err := crypto.ProcessKeyExchange(priv, ckem.CipherText)
-		if err != nil {
-			panic(errors.Wrap(err, "crypto.ProcessKeyExchange"))
-		}
-		fmt.Println(preMasterSecret)
-		ctl.PreMasterSecret = preMasterSecret
-		skem := msg.KeyExchangeMsg{CipherText: keyMsg}
-		message, err := json.Marshal(skem)
-		if err != nil {
-			panic(errors.Wrap(err, "marshal KeyExchangeMsg"))
-		}
-		err = ctl.Write(msg.TypeServerKeyExchange, message)
-		if err != nil {
-			panic(err)
-		}
-
-		cidm := msg.ClientIdGenerate{ctl.GenerateClientId()}
-		message, err = json.Marshal(cidm)
-		if err != nil {
-			panic(errors.Wrap(err, "marshal ClientIdGenerate"))
-		}
-		fmt.Println("client_id:", ctl.ClientID)
-		err = ctl.Write(msg.TypeClientIdGenerate, message)
-		if err != nil {
-			panic(err)
-		}
-		control.ControlMapLock.Lock()
-		control.ControlMap[ctl.ClientID] = ctl
-		control.ControlMapLock.Unlock()
-
-	} else {
-		panic(fmt.Errorf("invalid msg type expect:%v recv:%v", msg.TypeClientKeyExchange, mType))
+		panic(errors.Wrap(err, "ctl.ServerHandShake"))
 	}
 
 	time.Sleep(time.Second * 3)
@@ -244,23 +188,27 @@ func handlePipe(conn net.Conn) {
 			}
 
 			go func() {
-				var buf []byte = make([]byte, 1024)
-				_, err := stream.Read(buf)
+				lis, err := net.Listen("tcp", "0.0.0.0:8080")
 				if err != nil {
 					panic(err)
 				}
-				fmt.Println("server read  ", string(buf))
-
-				_, err = stream.Write([]byte("xxxxxxxxxx"))
-				if err != nil {
-					panic(err)
+				for {
+					conn, err := lis.Accept()
+					if err != nil {
+						panic(err)
+					}
+					var wg sync.WaitGroup
+					wg.Add(2)
+					go func() {
+						defer wg.Done()
+						io.Copy(stream, conn)
+					}()
+					go func() {
+						defer wg.Done()
+						io.Copy(conn, stream)
+					}()
+					wg.Wait()
 				}
-				time.Sleep(time.Second)
-				_, err = stream.Write([]byte("asdasdas11xxxxxxxxxxxxxx111111111111111111111111111111dasd"))
-				if err != nil {
-					panic(err)
-				}
-				time.Sleep(time.Second)
 			}()
 		}
 

@@ -9,17 +9,13 @@ type MsgType uint8
 const (
 	TypeClientKeyExchange MsgType = 1
 	TypeServerKeyExchange MsgType = 2
-	TypeClientIdGenerate          = 3
-	TypePipeHandShake             = 4
+	TypeClientID          MsgType = 3
+	TypePipeHandShake     MsgType = 4
 )
 
-type KeyExchangeMsg struct {
-	CipherText []byte
-}
+type CipherKey []byte
 
-type ClientIdGenerate struct {
-	ClientID uint64
-}
+type ClientID uint64
 
 type PipeHandShake struct {
 	PipeID   crypto.UUID

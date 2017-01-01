@@ -58,6 +58,7 @@ func (c *cryptoConn) decrypt(dst, src []byte) {
 	decrypt(c.block, dst, src, c.decbuf, &c.decNum)
 }
 
+//http://blog.csdn.net/charleslei/article/details/48710293
 func encrypt(block cipher.Block, dst, src, ivec []byte, num *int) {
 	n := *num
 	for l := 0; l < len(src); l++ {

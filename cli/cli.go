@@ -10,8 +10,10 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/klauspost/compress/snappy"
@@ -49,10 +51,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	/*stream, err := conn.OpenStream()
-	if err != nil {
-		panic(err)
-	}*/
+
 	tlsConfig, err := LoadTLSConfig([]string{"./ec.crt"})
 	if err != nil {
 		panic(err)
@@ -60,58 +59,14 @@ func main() {
 	tlsConfig.ServerName = "www.longxboy.com"
 	tlsConn := tls.Client(conn, tlsConfig)
 
-	priv, keyMsg := crypto.GenerateKeyExChange()
-	if keyMsg == nil || priv == nil {
-		panic(fmt.Errorf("error exchange key is nil"))
-	}
 	//这里应该将tlsconn封装在controller中，这样升级之后可以立刻defer close
-	ctl := control.NewControlConn(tlsConn)
+	ctl := control.NewControl(tlsConn)
 	defer ctl.Close()
 
-	ckem := msg.KeyExchangeMsg{CipherText: keyMsg}
-	message, err := json.Marshal(ckem)
+	err = ctl.ClientHandShake()
 	if err != nil {
-		panic(errors.Wrap(err, "marshal KeyExchangeMsg"))
-	}
-	err = ctl.Write(msg.TypeClientKeyExchange, message)
-	if err != nil {
-		panic(err)
-	}
-	mType, body, err := ctl.Read()
-	if err != nil {
-		panic(err)
-	}
-	var preMasterSecret []byte
-	if mType == msg.TypeServerKeyExchange {
-		var skem msg.KeyExchangeMsg
-		err = json.Unmarshal(body, &skem)
-		if err != nil {
-			panic(errors.Wrap(err, "unmarshal KeyExchangeMsg"))
-		}
-		preMasterSecret, err = crypto.ProcessKeyExchange(priv, skem.CipherText)
-		if err != nil {
-			panic(errors.Wrap(err, "crypto.ProcessKeyExchange"))
-		}
-		fmt.Println(preMasterSecret)
-		ctl.PreMasterSecret = preMasterSecret
-	} else {
-		panic(fmt.Errorf("invalid msg type expect:%v recv:%v", msg.TypeServerKeyExchange, mType))
-	}
-	mType, body, err = ctl.Read()
-	if err != nil {
-		panic(err)
-	}
+		panic(errors.Wrap(err, "ctl.ClientHandShake"))
 
-	if mType == msg.TypeClientIdGenerate {
-		var cidm msg.ClientIdGenerate
-		err = json.Unmarshal(body, &cidm)
-		if err != nil {
-			panic(errors.Wrap(err, "unmarshal ClientIdGenerate"))
-		}
-		ctl.ClientID = cidm.ClientID
-		fmt.Println("client_id:", ctl.ClientID)
-	} else {
-		panic(fmt.Errorf("invalid msg type expect:%v recv:%v", msg.TypeClientIdGenerate, mType))
 	}
 
 	pipeConn, err := createConn("www.longxboy.com:8081", true)
@@ -124,7 +79,7 @@ func main() {
 	var uuidm msg.PipeHandShake
 	uuidm.PipeID = uuid
 	uuidm.ClientID = ctl.ClientID
-	message, err = json.Marshal(uuidm)
+	message, err := json.Marshal(uuidm)
 	if err != nil {
 		panic(errors.Wrap(err, "unmarshal PipeUUIdGenerate"))
 	}
@@ -140,7 +95,7 @@ func main() {
 	}
 	fmt.Println("uuid:", uuidmar)
 
-	prf(masterKey, preMasterSecret, []byte(fmt.Sprintf("%d", ctl.ClientID)), uuidmar)
+	prf(masterKey, ctl.PreMasterSecret, []byte(fmt.Sprintf("%d", ctl.ClientID)), uuidmar)
 	fmt.Println("masterKey:", masterKey)
 
 	cryptoConn, err := crypto.NewCryptoConn(pipeConn, masterKey)
@@ -160,22 +115,24 @@ func main() {
 	}
 	defer stream.Close()
 
-	_, err = stream.Write([]byte("hehehenidaye"))
-	if err != nil {
-		panic(err)
+	for {
+		conn, err := net.Dial("tcp", "127.0.0.1:32768")
+		if err != nil {
+			panic(err)
+		}
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			io.Copy(stream, conn)
+		}()
+		go func() {
+			defer wg.Done()
+			io.Copy(conn, stream)
+		}()
+		wg.Wait()
 	}
-	var buf []byte = make([]byte, 64)
-	_, err = stream.Read(buf)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(string(buf))
-	buf = make([]byte, 64)
-	_, err = stream.Read(buf)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(string(buf))
+
 	time.Sleep(time.Second * 3)
 }
 
@@ -212,17 +169,5 @@ func createConn(addr string, noComp bool) (net.Conn, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "kcp dial")
 	}
-	// stream multiplex
-	/*smuxConfig := smux.DefaultConfig()
-	smuxConfig.MaxReceiveBuffer = kcp.SockBuf
-	var session *smux.Session
-	if noComp {
-		session, err = smux.Client(kcpconn, smuxConfig)
-	} else {
-		session, err = smux.Client(newCompStream(kcpconn), smuxConfig)
-	}
-	if err != nil {
-		return nil, errors.Wrap(err, "smux wrap conn failed")
-	}*/
 	return kcpconn, nil
 }
