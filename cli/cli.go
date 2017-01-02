@@ -59,13 +59,12 @@ func main() {
 	tlsConfig.ServerName = "www.longxboy.com"
 	tlsConn := tls.Client(conn, tlsConfig)
 
-	//这里应该将tlsconn封装在controller中，这样升级之后可以立刻defer close
 	ctl := control.NewControl(tlsConn)
 	defer ctl.Close()
 
 	err = ctl.ClientHandShake()
 	if err != nil {
-		panic(errors.Wrap(err, "ctl.ClientHandShake"))
+		panic(errors.Wrap(err, "control.ClientHandShake"))
 
 	}
 

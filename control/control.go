@@ -96,26 +96,19 @@ func (c *Control) ClientHandShake() error {
 		return fmt.Errorf("GenerateKeyExChange error,key is nil")
 	}
 	var ckem msg.CipherKey = keyMsg
-	message, err := json.Marshal(ckem)
+
+	err := msg.WriteMsg(c.controlConn, msg.TypeClientKeyExchange, ckem)
 	if err != nil {
-		return errors.Wrap(err, "marshal ckem")
+		return errors.Wrap(err, "WriteMsg ckem")
 	}
-	err = c.writeMsg(msg.TypeClientKeyExchange, message)
-	if err != nil {
-		return errors.Wrap(err, "Write ckem")
-	}
-	mType, body, err := c.readMsg()
+	mType, body, err := msg.ReadMsg(c.controlConn)
 	if err != nil {
 		return errors.Wrap(err, "read skem")
 	}
 	var preMasterSecret []byte
 	if mType == msg.TypeServerKeyExchange {
-		var skem msg.CipherKey
-		err = json.Unmarshal(body, &skem)
-		if err != nil {
-			return errors.Wrap(err, "Unmarshal skem")
-		}
-		preMasterSecret, err = crypto.ProcessKeyExchange(priv, skem)
+		skem := body.(*msg.CipherKey)
+		preMasterSecret, err = crypto.ProcessKeyExchange(priv, *skem)
 		if err != nil {
 			return errors.Wrap(err, "crypto.ProcessKeyExchange")
 		}
@@ -124,18 +117,16 @@ func (c *Control) ClientHandShake() error {
 	} else {
 		return fmt.Errorf("invalid msg type expect:%v recv:%v", msg.TypeServerKeyExchange, mType)
 	}
-	mType, body, err = c.readMsg()
+
+	mType, body, err = msg.ReadMsg(c.controlConn)
 	if err != nil {
 		return errors.Wrap(err, "read ClientID")
 	}
-
+	fmt.Println("interface:", body)
 	if mType == msg.TypeClientID {
-		var cidm msg.ClientID
-		err = json.Unmarshal(body, &cidm)
-		if err != nil {
-			return errors.Wrap(err, "Unmarshal ClientId")
-		}
-		c.ClientID = uint64(cidm)
+		cidm := body.(*msg.ClientID)
+
+		c.ClientID = uint64(*cidm)
 		fmt.Println("client_id:", c.ClientID)
 	} else {
 		return fmt.Errorf("invalid msg type expect:%v recv:%v", msg.TypeClientID, mType)
