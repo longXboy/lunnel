@@ -4,9 +4,7 @@ import (
 	"Lunnel/control"
 	"Lunnel/crypto"
 	"Lunnel/kcp"
-	"Lunnel/msg"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -140,79 +138,61 @@ func handleControl(conn net.Conn) {
 }
 
 func handlePipe(conn net.Conn) {
-	p := control.NewPipe(conn)
+	p := control.NewPipe(conn, nil)
 	defer p.Close()
-	mType, body, err := p.Read()
+	err := p.ServerHandShake()
 	if err != nil {
 		panic(err)
 	}
-	if mType == msg.TypePipeHandShake {
-		var h msg.PipeHandShake
-		err = json.Unmarshal(body, &h)
-		if err != nil {
-			panic(errors.Wrap(err, "unmarshal PipeUUIdGenerate"))
-		}
-		p.ID = h.PipeID
 
-		control.ControlMapLock.RLock()
-		ctl := control.ControlMap[h.ClientID]
-		control.ControlMapLock.RUnlock()
-		prf := crypto.NewPrf12()
-		var masterKey []byte = make([]byte, 16)
-		uuid := make([]byte, 16)
-		for i := range uuid {
-			uuid[i] = h.PipeID[i]
-		}
-		fmt.Println("uuid:", uuid)
-		prf(masterKey, ctl.PreMasterSecret, []byte(fmt.Sprintf("%d", h.ClientID)), uuid)
-		fmt.Println("masterKey:", masterKey)
+	cryptoConn, err := crypto.NewCryptoConn(conn, p.MasterKey)
+	if err != nil {
+		panic(err)
+	}
 
-		cryptoConn, err := crypto.NewCryptoConn(conn, masterKey)
-		if err != nil {
-			panic(err)
-		}
-
-		smuxConfig := smux.DefaultConfig()
-		smuxConfig.MaxReceiveBuffer = 4194304
-		mux, err := smux.Server(cryptoConn, smuxConfig)
+	smuxConfig := smux.DefaultConfig()
+	smuxConfig.MaxReceiveBuffer = 4194304
+	mux, err := smux.Server(cryptoConn, smuxConfig)
+	if err != nil {
+		panic(err)
+		return
+	}
+	defer mux.Close()
+	for {
+		stream, err := mux.AcceptStream()
 		if err != nil {
 			panic(err)
 			return
 		}
-		defer mux.Close()
-		for {
-			stream, err := mux.AcceptStream()
+
+		go func() {
+			lis, err := net.Listen("tcp", "0.0.0.0:8080")
 			if err != nil {
 				panic(err)
-				return
 			}
-
-			go func() {
-				lis, err := net.Listen("tcp", "0.0.0.0:8080")
+			for {
+				conn, err := lis.Accept()
 				if err != nil {
 					panic(err)
 				}
-				for {
-					conn, err := lis.Accept()
-					if err != nil {
-						panic(err)
-					}
-					var wg sync.WaitGroup
-					wg.Add(2)
-					go func() {
-						defer wg.Done()
-						io.Copy(stream, conn)
-					}()
-					go func() {
-						defer wg.Done()
-						io.Copy(conn, stream)
-					}()
-					wg.Wait()
-				}
-			}()
-		}
-
+				var wg sync.WaitGroup
+				wg.Add(2)
+				go func() {
+					defer wg.Done()
+					io.Copy(stream, conn)
+				}()
+				go func() {
+					defer wg.Done()
+					io.Copy(conn, stream)
+				}()
+				wg.Wait()
+			}
+		}()
 	}
 
 	time.Sleep(time.Second * 3)
+}
+
+func getStream() {
+
 }

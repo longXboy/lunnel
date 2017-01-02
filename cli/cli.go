@@ -4,10 +4,8 @@ import (
 	"Lunnel/control"
 	"Lunnel/crypto"
 	"Lunnel/kcp"
-	msg "Lunnel/msg"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -65,39 +63,17 @@ func main() {
 	err = ctl.ClientHandShake()
 	if err != nil {
 		panic(errors.Wrap(err, "control.ClientHandShake"))
-
 	}
 
 	pipeConn, err := createConn("www.longxboy.com:8081", true)
 	if err != nil {
 		panic(err)
 	}
-	pipe := control.NewPipe(pipeConn)
+	pipe := control.NewPipe(pipeConn, ctl)
 	defer pipe.Close()
-	uuid := pipe.GenerateUUID()
-	var uuidm msg.PipeHandShake
-	uuidm.PipeID = uuid
-	uuidm.ClientID = ctl.ClientID
-	message, err := json.Marshal(uuidm)
-	if err != nil {
-		panic(errors.Wrap(err, "unmarshal PipeUUIdGenerate"))
-	}
-	err = pipe.Write(msg.TypePipeHandShake, message)
-	if err != nil {
-		panic(err)
-	}
-	prf := crypto.NewPrf12()
-	var masterKey []byte = make([]byte, 16)
-	uuidmar := make([]byte, 16)
-	for i := range uuidm.PipeID {
-		uuidmar[i] = uuidm.PipeID[i]
-	}
-	fmt.Println("uuid:", uuidmar)
+	pipe.ClientHandShake()
 
-	prf(masterKey, ctl.PreMasterSecret, []byte(fmt.Sprintf("%d", ctl.ClientID)), uuidmar)
-	fmt.Println("masterKey:", masterKey)
-
-	cryptoConn, err := crypto.NewCryptoConn(pipeConn, masterKey)
+	cryptoConn, err := crypto.NewCryptoConn(pipeConn, pipe.MasterKey)
 	if err != nil {
 		panic(err)
 	}

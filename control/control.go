@@ -3,7 +3,6 @@ package control
 import (
 	"Lunnel/crypto"
 	"Lunnel/msg"
-	"encoding/json"
 	"fmt"
 	"net"
 	"sync"
@@ -13,18 +12,22 @@ import (
 )
 
 var currentClientID uint64 = 0
-var maxPipeNumPerControl uint = 8
+var maxPipes uint = 8
+var maxIdlePipes uint = 4
 
 var ControlMapLock sync.RWMutex
-var ControlMap = make(map[uint64]*Control, 3000)
+var ControlMap = make(map[uint64]*Control, 2000)
 
 func NewControl(conn net.Conn) *Control {
-	return &Control{controlConn: conn}
+	return &Control{ctlConn: conn}
 }
 
 type Control struct {
-	controlConn net.Conn
-	pipes       []Pipe
+	ctlConn  net.Conn
+	busy     []*Pipe
+	busyLock sync.RWMutex
+	idle     []*Pipe
+	idleLock sync.RWMutex
 
 	PreMasterSecret []byte
 	ClientID        uint64
@@ -36,58 +39,7 @@ func (c *Control) GenerateClientId() uint64 {
 }
 
 func (c *Control) Close() error {
-	return c.controlConn.Close()
-}
-
-func (c *Control) readMsg() (msg.MsgType, []byte, error) {
-	var header []byte = make([]byte, 4)
-	err := c.readInSize(header)
-	if err != nil {
-		return 0, nil, errors.Wrap(err, "Conn readInSize")
-	}
-	length := int(header[1])<<16 | int(header[2])<<8 | int(header[3])
-	body := make([]byte, length)
-	err = c.readInSize(body)
-	if err != nil {
-		return 0, nil, errors.Wrap(err, "Conn readInSize")
-	}
-	return msg.MsgType(header[0]), body, nil
-}
-
-func (c *Control) writeMsg(mtype msg.MsgType, body []byte) error {
-	length := len(body)
-	if length > 16777215 {
-		return fmt.Errorf("write message out of size limit(16777215)")
-	}
-	x := make([]byte, length+4)
-	x[0] = uint8(mtype)
-	x[1] = uint8(length >> 16)
-	x[2] = uint8(length >> 8)
-	x[3] = uint8(length)
-	copy(x[4:], body)
-	_, err := c.controlConn.Write(x)
-	if err != nil {
-		return errors.Wrap(err, "Conn.raw_conn write")
-	}
-	return nil
-}
-
-func (c *Control) readInSize(b []byte) error {
-	size := len(b)
-	bLeft := b
-	remain := size
-	for {
-		n, err := c.controlConn.Read(bLeft)
-		if err != nil {
-			return errors.Wrap(err, "Conn.raw_conn read")
-		}
-		remain = remain - n
-		if remain == 0 {
-			return nil
-		} else {
-			bLeft = bLeft[n:]
-		}
-	}
+	return c.ctlConn.Close()
 }
 
 func (c *Control) ClientHandShake() error {
@@ -97,11 +49,11 @@ func (c *Control) ClientHandShake() error {
 	}
 	var ckem msg.CipherKey = keyMsg
 
-	err := msg.WriteMsg(c.controlConn, msg.TypeClientKeyExchange, ckem)
+	err := msg.WriteMsg(c.ctlConn, msg.TypeClientKeyExchange, ckem)
 	if err != nil {
 		return errors.Wrap(err, "WriteMsg ckem")
 	}
-	mType, body, err := msg.ReadMsg(c.controlConn)
+	mType, body, err := msg.ReadMsg(c.ctlConn)
 	if err != nil {
 		return errors.Wrap(err, "read skem")
 	}
@@ -118,7 +70,7 @@ func (c *Control) ClientHandShake() error {
 		return fmt.Errorf("invalid msg type expect:%v recv:%v", msg.TypeServerKeyExchange, mType)
 	}
 
-	mType, body, err = msg.ReadMsg(c.controlConn)
+	mType, body, err = msg.ReadMsg(c.ctlConn)
 	if err != nil {
 		return errors.Wrap(err, "read ClientID")
 	}
@@ -135,43 +87,32 @@ func (c *Control) ClientHandShake() error {
 }
 
 func (c *Control) ServerHandShake() error {
-	mType, body, err := c.readMsg()
+	mType, body, err := msg.ReadMsg(c.ctlConn)
 	if err != nil {
 		panic(err)
 	}
 	if mType == msg.TypeClientKeyExchange {
-		var ckem msg.CipherKey
-		err = json.Unmarshal(body, &ckem)
-		if err != nil {
-			return errors.Wrap(err, "Unmarshal KeyExchangeMsg")
-		}
+		ckem := body.(*msg.CipherKey)
 		priv, keyMsg := crypto.GenerateKeyExChange()
 		if keyMsg == nil || priv == nil {
 			return fmt.Errorf("crypto.GenerateKeyExChange error ,exchange key is nil")
 		}
-		preMasterSecret, err := crypto.ProcessKeyExchange(priv, ckem)
+		preMasterSecret, err := crypto.ProcessKeyExchange(priv, *ckem)
 		if err != nil {
 			return errors.Wrap(err, "crypto.ProcessKeyExchange")
 		}
 		fmt.Println(preMasterSecret)
 		c.PreMasterSecret = preMasterSecret
 		var skem msg.CipherKey = keyMsg
-		message, err := json.Marshal(skem)
-		if err != nil {
-			return errors.Wrap(err, "marshal KeyExchangeMsg")
-		}
-		err = c.writeMsg(msg.TypeServerKeyExchange, message)
+
+		err = msg.WriteMsg(c.ctlConn, msg.TypeServerKeyExchange, skem)
 		if err != nil {
 			return errors.Wrap(err, "write ServerKeyExchange msg")
 		}
 
 		var cidm msg.ClientID = msg.ClientID(c.GenerateClientId())
-		message, err = json.Marshal(cidm)
-		if err != nil {
-			return errors.Wrap(err, "Marshal ClientId")
-		}
 		fmt.Println("client_id:", c.ClientID)
-		err = c.writeMsg(msg.TypeClientID, message)
+		err = msg.WriteMsg(c.ctlConn, msg.TypeClientID, cidm)
 		if err != nil {
 			return errors.Wrap(err, "Write ClientId")
 		}

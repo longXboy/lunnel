@@ -7,21 +7,29 @@ import (
 	"net"
 
 	"github.com/pkg/errors"
+	"github.com/xtaci/smux"
 )
 
-var maxStreamNumPerPipe uint = 4
+var maxStreams uint = 4
+var maxIdleStreams uint = 2
 
-func NewPipe(conn net.Conn) *Pipe {
-	return &Pipe{pipeConn: conn}
+func NewPipe(conn net.Conn, ctl *Control) *Pipe {
+	return &Pipe{pipeConn: conn, ctl: ctl}
 }
 
 type Pipe struct {
-	pipeConn net.Conn
+	pipeConn   net.Conn
+	ctl        *Control
+	busy       []*smux.Stream
+	idle       []*smux.Stream
+	maxStreams uint64
+	maxIdles   uint64
 
-	ID crypto.UUID
+	MasterKey []byte
+	ID        crypto.UUID
 }
 
-func (p *Pipe) GenerateUUID() crypto.UUID {
+func (p *Pipe) GeneratePipeID() crypto.UUID {
 	p.ID = crypto.GenUUID()
 	return p.ID
 }
@@ -30,53 +38,61 @@ func (p *Pipe) Close() error {
 	return p.pipeConn.Close()
 }
 
-func (p *Pipe) Read() (msg.MsgType, []byte, error) {
-	var header []byte = make([]byte, 4)
-	err := p.readInSize(header)
+func (p *Pipe) ClientHandShake() error {
+	uuid := p.GeneratePipeID()
+	var uuidm msg.PipeHandShake
+	uuidm.PipeID = uuid
+	uuidm.ClientID = p.ctl.ClientID
+	err := msg.WriteMsg(p.pipeConn, msg.TypePipeHandShake, uuidm)
 	if err != nil {
-		return 0, nil, errors.Wrap(err, "Conn readInSize")
+		return errors.Wrap(err, "write pipe handshake")
 	}
-	length := int(header[1])<<16 | int(header[2])<<8 | int(header[3])
-	body := make([]byte, length)
-	err = p.readInSize(body)
-	if err != nil {
-		return 0, nil, errors.Wrap(err, "Conn readInSize")
+	prf := crypto.NewPrf12()
+	var masterKey []byte = make([]byte, 16)
+	uuidmar := make([]byte, 16)
+	for i := range uuidm.PipeID {
+		uuidmar[i] = uuidm.PipeID[i]
 	}
-	return msg.MsgType(header[0]), body, nil
-}
+	fmt.Println("uuid:", uuidmar)
 
-func (p *Pipe) Write(mtype msg.MsgType, body []byte) error {
-	length := len(body)
-	if length > 16777215 {
-		return fmt.Errorf("write message out of size limit(16777215)")
-	}
-	x := make([]byte, length+4)
-	x[0] = uint8(mtype)
-	x[1] = uint8(length >> 16)
-	x[2] = uint8(length >> 8)
-	x[3] = uint8(length)
-	copy(x[4:], body)
-	_, err := p.pipeConn.Write(x)
-	if err != nil {
-		return errors.Wrap(err, "Conn.raw_conn write")
-	}
+	prf(masterKey, p.ctl.PreMasterSecret, []byte(fmt.Sprintf("%d", p.ctl.ClientID)), uuidmar)
+	p.MasterKey = masterKey
+	fmt.Println("masterKey:", masterKey)
+
+	p.ctl.idleLock.Lock()
+	p.ctl.idle = append(p.ctl.idle, p)
+	p.ctl.idleLock.Unlock()
 	return nil
 }
 
-func (p *Pipe) readInSize(b []byte) error {
-	size := len(b)
-	bLeft := b
-	remain := size
-	for {
-		n, err := p.pipeConn.Read(bLeft)
-		if err != nil {
-			return errors.Wrap(err, "Conn.raw_conn read")
-		}
-		remain = remain - n
-		if remain == 0 {
-			return nil
-		} else {
-			bLeft = bLeft[n:]
-		}
+func (p *Pipe) ServerHandShake() error {
+	mType, body, err := msg.ReadMsg(p.pipeConn)
+	if err != nil {
+		return errors.Wrap(err, "pipe readMsg")
 	}
+	if mType == msg.TypePipeHandShake {
+		h := body.(*msg.PipeHandShake)
+		p.ID = h.PipeID
+
+		ControlMapLock.RLock()
+		ctl := ControlMap[h.ClientID]
+		ControlMapLock.RUnlock()
+		p.ctl = ctl
+		p.ctl.idleLock.Lock()
+		p.ctl.idle = append(p.ctl.idle, p)
+		p.ctl.idleLock.Unlock()
+		prf := crypto.NewPrf12()
+		var masterKey []byte = make([]byte, 16)
+		uuid := make([]byte, 16)
+		for i := range uuid {
+			uuid[i] = h.PipeID[i]
+		}
+		fmt.Println("uuid:", uuid)
+		prf(masterKey, ctl.PreMasterSecret, []byte(fmt.Sprintf("%d", h.ClientID)), uuid)
+		p.MasterKey = masterKey
+		fmt.Println("masterKey:", masterKey)
+	} else {
+		return fmt.Errorf("invalid msg type expect:%v recv:%v", msg.TypePipeHandShake, mType)
+	}
+	return nil
 }
