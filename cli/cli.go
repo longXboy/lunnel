@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/klauspost/compress/snappy"
@@ -43,6 +42,8 @@ func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 
 	return &tls.Config{RootCAs: pool}, nil
 }
+
+var Tunnels []string = []string{"tcp://127.0.0.1:32768"}
 
 func main() {
 	conn, err := createConn("www.longxboy.com:8080", true)
@@ -79,34 +80,82 @@ func main() {
 	}
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.MaxReceiveBuffer = 4194304
-	sess, err := smux.Client(cryptoConn, smuxConfig)
+	mux, err := smux.Server(cryptoConn, smuxConfig)
 	if err != nil {
 		panic(err)
+		return
 	}
-	defer sess.Close()
-	stream, err := sess.OpenStream()
-	if err != nil {
-		panic(err)
-	}
-	defer stream.Close()
-
+	defer mux.Close()
+	idx := 0
 	for {
-		conn, err := net.Dial("tcp", "127.0.0.1:32768")
+		stream, err := mux.AcceptStream()
+		if err != nil {
+			panic(err)
+			return
+		}
+		idx++
+		go func() {
+			defer stream.Close()
+			fmt.Println("open stream:", idx)
+			conn, err := net.Dial("tcp", "127.0.0.1:32768")
+			if err != nil {
+				panic(err)
+			}
+			defer conn.Close()
+			p1die := make(chan struct{})
+			p2die := make(chan struct{})
+
+			go func() {
+				io.Copy(stream, conn)
+				close(p1die)
+				fmt.Println("dst copy done:", idx)
+			}()
+			go func() {
+				io.Copy(conn, stream)
+				close(p2die)
+				fmt.Println("src copy done:", idx)
+			}()
+			select {
+			case <-p1die:
+			case <-p2die:
+			}
+			fmt.Println("close Stream:", idx)
+
+		}()
+	}
+	/*
+		smuxConfig := smux.DefaultConfig()
+		smuxConfig.MaxReceiveBuffer = 4194304
+		sess, err := smux.Client(cryptoConn, smuxConfig)
 		if err != nil {
 			panic(err)
 		}
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			io.Copy(stream, conn)
-		}()
-		go func() {
-			defer wg.Done()
-			io.Copy(conn, stream)
-		}()
-		wg.Wait()
-	}
+		defer sess.Close()
+
+		stream, err := sess.OpenStream()
+		if err != nil {
+			panic(err)
+		}
+		defer stream.Close()
+
+		for {
+			conn, err := net.Dial("tcp", "127.0.0.1:32768")
+			if err != nil {
+				panic(err)
+			}
+			var wg sync.WaitGroup
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				io.Copy(stream, conn)
+			}()
+			go func() {
+				defer wg.Done()
+				io.Copy(conn, stream)
+			}()
+			wg.Wait()
+		}
+	*/
 
 	time.Sleep(time.Second * 3)
 }

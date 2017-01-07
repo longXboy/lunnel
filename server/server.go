@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/klauspost/compress/snappy"
@@ -149,48 +148,102 @@ func handlePipe(conn net.Conn) {
 	if err != nil {
 		panic(err)
 	}
-
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.MaxReceiveBuffer = 4194304
-	mux, err := smux.Server(cryptoConn, smuxConfig)
+	sess, err := smux.Client(cryptoConn, smuxConfig)
 	if err != nil {
 		panic(err)
-		return
 	}
-	defer mux.Close()
-	for {
-		stream, err := mux.AcceptStream()
+	defer sess.Close()
+
+	go func() {
+		lis, err := net.Listen("tcp", "0.0.0.0:8080")
+		if err != nil {
+			panic(err)
+		}
+		idx := 0
+		for {
+			conn, err := lis.Accept()
+			if err != nil {
+				panic(err)
+			}
+			idx++
+			go func() {
+				defer conn.Close()
+				fmt.Println("open stream:", idx)
+				stream, err := sess.OpenStream()
+				if err != nil {
+					panic(err)
+				}
+				defer stream.Close()
+
+				p1die := make(chan struct{})
+				p2die := make(chan struct{})
+				go func() {
+					io.Copy(stream, conn)
+					close(p1die)
+					fmt.Println("src copy done:", idx)
+				}()
+				go func() {
+					io.Copy(conn, stream)
+					close(p2die)
+					fmt.Println("dst copy done:", idx)
+				}()
+				select {
+				case <-p1die:
+				case <-p2die:
+				}
+				fmt.Println("close Stream:", idx)
+
+			}()
+
+		}
+	}()
+
+	/*
+		smuxConfig := smux.DefaultConfig()
+		smuxConfig.MaxReceiveBuffer = 4194304
+		mux, err := smux.Server(cryptoConn, smuxConfig)
 		if err != nil {
 			panic(err)
 			return
 		}
-
-		go func() {
-			lis, err := net.Listen("tcp", "0.0.0.0:8080")
+		defer mux.Close()
+		for {
+			stream, err := mux.AcceptStream()
 			if err != nil {
 				panic(err)
+				return
 			}
-			for {
-				conn, err := lis.Accept()
+
+			go func() {
+				lis, err := net.Listen("tcp", "0.0.0.0:8080")
 				if err != nil {
 					panic(err)
 				}
-				var wg sync.WaitGroup
-				wg.Add(2)
-				go func() {
-					defer wg.Done()
-					io.Copy(stream, conn)
-				}()
-				go func() {
-					defer wg.Done()
-					io.Copy(conn, stream)
-				}()
-				wg.Wait()
-			}
-		}()
-	}
+				for {
+					conn, err := lis.Accept()
+					if err != nil {
+						panic(err)
+					}
+					var wg sync.WaitGroup
+					wg.Add(2)
+					go func() {
+						defer wg.Done()
+						io.Copy(stream, conn)
+					}()
+					go func() {
+						defer wg.Done()
+						io.Copy(conn, stream)
+					}()
+					wg.Wait()
+				}
+			}()
+		}
 
-	time.Sleep(time.Second * 3)
+	*/
+
+	time.Sleep(time.Minute * 60)
 }
 
 func getStream() {
