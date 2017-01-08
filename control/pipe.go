@@ -24,9 +24,14 @@ type Pipe struct {
 	idle       []*smux.Stream
 	maxStreams uint64
 	maxIdles   uint64
+	sess       *smux.Session
 
 	MasterKey []byte
 	ID        crypto.UUID
+}
+
+func (p *Pipe) GetStream(tunnel string) (*smux.Stream, error) {
+	return p.sess.OpenStream(tunnel)
 }
 
 func (p *Pipe) GeneratePipeID() crypto.UUID {
@@ -55,7 +60,7 @@ func (p *Pipe) ClientHandShake() error {
 	}
 	fmt.Println("uuid:", uuidmar)
 
-	prf(masterKey, p.ctl.PreMasterSecret, []byte(fmt.Sprintf("%d", p.ctl.ClientID)), uuidmar)
+	prf(masterKey, p.ctl.preMasterSecret, []byte(fmt.Sprintf("%d", p.ctl.ClientID)), uuidmar)
 	p.MasterKey = masterKey
 	fmt.Println("masterKey:", masterKey)
 
@@ -66,33 +71,42 @@ func (p *Pipe) ClientHandShake() error {
 }
 
 func (p *Pipe) ServerHandShake() error {
-	mType, body, err := msg.ReadMsg(p.pipeConn)
+	_, body, err := msg.ReadMsg(p.pipeConn)
 	if err != nil {
 		return errors.Wrap(err, "pipe readMsg")
 	}
-	if mType == msg.TypePipeHandShake {
-		h := body.(*msg.PipeHandShake)
-		p.ID = h.PipeID
+	h := body.(*msg.PipeHandShake)
+	p.ID = h.PipeID
 
-		ControlMapLock.RLock()
-		ctl := ControlMap[h.ClientID]
-		ControlMapLock.RUnlock()
-		p.ctl = ctl
-		p.ctl.idleLock.Lock()
-		p.ctl.idle = append(p.ctl.idle, p)
-		p.ctl.idleLock.Unlock()
-		prf := crypto.NewPrf12()
-		var masterKey []byte = make([]byte, 16)
-		uuid := make([]byte, 16)
-		for i := range uuid {
-			uuid[i] = h.PipeID[i]
-		}
-		fmt.Println("uuid:", uuid)
-		prf(masterKey, ctl.PreMasterSecret, []byte(fmt.Sprintf("%d", h.ClientID)), uuid)
-		p.MasterKey = masterKey
-		fmt.Println("masterKey:", masterKey)
-	} else {
-		return fmt.Errorf("invalid msg type expect:%v recv:%v", msg.TypePipeHandShake, mType)
+	ControlMapLock.RLock()
+	ctl := ControlMap[h.ClientID]
+	ControlMapLock.RUnlock()
+	p.ctl = ctl
+
+	prf := crypto.NewPrf12()
+	var masterKey []byte = make([]byte, 16)
+	uuid := make([]byte, 16)
+	for i := range uuid {
+		uuid[i] = h.PipeID[i]
 	}
+	fmt.Println("uuid:", uuid)
+	prf(masterKey, ctl.preMasterSecret, []byte(fmt.Sprintf("%d", h.ClientID)), uuid)
+	p.MasterKey = masterKey
+	fmt.Println("masterKey:", masterKey)
+
+	cryptoConn, err := crypto.NewCryptoConn(p.pipeConn, p.MasterKey)
+	if err != nil {
+		return errors.Wrap(err, "crypto.NewCryptoConn")
+	}
+	smuxConfig := smux.DefaultConfig()
+	smuxConfig.MaxReceiveBuffer = 4194304
+	sess, err := smux.Client(cryptoConn, smuxConfig)
+	if err != nil {
+		return errors.Wrap(err, "smux.Client")
+	}
+	p.sess = sess
+	p.ctl.idleLock.Lock()
+	p.ctl.idle = append(p.ctl.idle, p)
+	p.ctl.idleLock.Unlock()
 	return nil
 }

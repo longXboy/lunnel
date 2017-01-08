@@ -4,6 +4,7 @@ import (
 	"Lunnel/control"
 	"Lunnel/crypto"
 	"Lunnel/kcp"
+	"Lunnel/proto"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -43,8 +44,6 @@ func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 	return &tls.Config{RootCAs: pool}, nil
 }
 
-var Tunnels []string = []string{"tcp://127.0.0.1:32768"}
-
 func main() {
 	conn, err := createConn("www.longxboy.com:8080", true)
 	if err != nil {
@@ -58,14 +57,20 @@ func main() {
 	tlsConfig.ServerName = "www.longxboy.com"
 	tlsConn := tls.Client(conn, tlsConfig)
 
-	ctl := control.NewControl(tlsConn)
+	opt := control.Options{Tunnels: make([]proto.Tunnel, 0)}
+	opt.Tunnels = append(opt.Tunnels, proto.Tunnel{LocalAddress: "127.0.0.1:32768"})
+
+	ctl := control.NewControl(tlsConn, &opt)
 	defer ctl.Close()
 
 	err = ctl.ClientHandShake()
 	if err != nil {
 		panic(errors.Wrap(err, "control.ClientHandShake"))
 	}
-
+	err = ctl.ClientSyncTunnels()
+	if err != nil {
+		panic(errors.Wrap(err, "ctl.ClientSyncTunnels"))
+	}
 	pipeConn, err := createConn("www.longxboy.com:8081", true)
 	if err != nil {
 		panic(err)
@@ -97,7 +102,7 @@ func main() {
 		go func() {
 			defer stream.Close()
 			fmt.Println("open stream:", idx)
-			conn, err := net.Dial("tcp", "127.0.0.1:32768")
+			conn, err := net.Dial("tcp", stream.Tunnel())
 			if err != nil {
 				panic(err)
 			}
@@ -123,40 +128,6 @@ func main() {
 
 		}()
 	}
-	/*
-		smuxConfig := smux.DefaultConfig()
-		smuxConfig.MaxReceiveBuffer = 4194304
-		sess, err := smux.Client(cryptoConn, smuxConfig)
-		if err != nil {
-			panic(err)
-		}
-		defer sess.Close()
-
-		stream, err := sess.OpenStream()
-		if err != nil {
-			panic(err)
-		}
-		defer stream.Close()
-
-		for {
-			conn, err := net.Dial("tcp", "127.0.0.1:32768")
-			if err != nil {
-				panic(err)
-			}
-			var wg sync.WaitGroup
-			wg.Add(2)
-			go func() {
-				defer wg.Done()
-				io.Copy(stream, conn)
-			}()
-			go func() {
-				defer wg.Done()
-				io.Copy(conn, stream)
-			}()
-			wg.Wait()
-		}
-	*/
-
 	time.Sleep(time.Second * 3)
 }
 

@@ -2,6 +2,7 @@ package msg
 
 import (
 	"Lunnel/crypto"
+	"Lunnel/proto"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,15 +17,24 @@ const (
 	TypeServerKeyExchange MsgType = 2
 	TypeClientID          MsgType = 3
 	TypePipeHandShake     MsgType = 4
+	TypeSyncTunnel        MsgType = 5
 )
 
-type CipherKey []byte
+type CipherKeyExchange struct {
+	CipherKey []byte
+}
 
-type ClientID uint64
+type ClientIDExchange struct {
+	ClientID uint64
+}
 
 type PipeHandShake struct {
 	PipeID   crypto.UUID
 	ClientID uint64
+}
+
+type SyncTunnels struct {
+	Tunnels []proto.Tunnel
 }
 
 func WriteMsg(w io.Writer, mType MsgType, in interface{}) error {
@@ -62,19 +72,19 @@ func ReadMsg(r io.Reader) (MsgType, interface{}, error) {
 		return 0, nil, errors.Wrap(err, "msg readInSize body")
 	}
 	var out interface{}
-	fmt.Println("header:", header[0])
 	if MsgType(header[0]) == TypeClientKeyExchange || MsgType(header[0]) == TypeServerKeyExchange {
-		out = new(CipherKey)
+		out = new(CipherKeyExchange)
 	} else if MsgType(header[0]) == TypePipeHandShake {
 		out = new(PipeHandShake)
 	} else if MsgType(header[0]) == TypeClientID {
-		fmt.Println("ClientId")
-		out = new(ClientID)
+		out = new(ClientIDExchange)
+	} else if MsgType(header[0]) == TypeSyncTunnel {
+		out = new(SyncTunnels)
 	} else {
 		return 0, nil, fmt.Errorf("invalid msg type %d", header[0])
 	}
 	err = json.Unmarshal(body, out)
-	fmt.Println(out)
+	fmt.Println("read msg:", out)
 	if err != nil {
 		return 0, nil, errors.Wrapf(err, "json unmarshal %d", header[0])
 	}

@@ -2,6 +2,7 @@ package smux
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -81,15 +82,16 @@ func newSession(config *Config, conn io.ReadWriteCloser, client bool) *Session {
 }
 
 // OpenStream is used to create a new stream
-func (s *Session) OpenStream() (*Stream, error) {
+func (s *Session) OpenStream(tunnel string) (*Stream, error) {
 	if s.IsClosed() {
 		return nil, errors.New(errBrokenPipe)
 	}
 
 	sid := atomic.AddUint32(&s.nextStreamID, 2)
-	stream := newStream(sid, s.config.MaxFrameSize, s)
-
-	if _, err := s.writeFrame(newFrame(cmdSYN, sid)); err != nil {
+	stream := newStream(sid, s.config.MaxFrameSize, s, tunnel)
+	f := newFrame(cmdSYN, sid)
+	f.data = []byte(tunnel)
+	if _, err := s.writeFrame(f); err != nil {
 		return nil, errors.Wrap(err, "writeFrame")
 	}
 
@@ -234,8 +236,9 @@ func (s *Session) recvLoop() {
 			case cmdSYN:
 				s.streamLock.Lock()
 				if _, ok := s.streams[f.sid]; !ok {
-					stream := newStream(f.sid, s.config.MaxFrameSize, s)
+					stream := newStream(f.sid, s.config.MaxFrameSize, s, string(f.data))
 					s.streams[f.sid] = stream
+					fmt.Println(string(f.data))
 					select {
 					case s.chAccepts <- stream:
 					case <-s.die:
