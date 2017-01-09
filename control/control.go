@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"sync"
-	"sync/atomic"
 
 	"github.com/pkg/errors"
 )
@@ -27,12 +26,11 @@ const (
 	ProtoUnixSock Proto = 4
 )
 
-var currentClientID uint64 = 0
-var maxPipes uint = 8
-var maxIdlePipes uint = 4
+var maxPipes int = 8
+var maxIdlePipes int = 4
 
 var ControlMapLock sync.RWMutex
-var ControlMap = make(map[uint64]*Control, 2000)
+var ControlMap = make(map[crypto.UUID]*Control)
 
 func NewControl(conn net.Conn, opt *Options) *Control {
 	ctl := &Control{ctlConn: conn}
@@ -44,17 +42,15 @@ func NewControl(conn net.Conn, opt *Options) *Control {
 
 type Control struct {
 	ctlConn         net.Conn
-	busy            []*Pipe
-	busyLock        sync.RWMutex
 	idle            []*Pipe
 	idleLock        sync.RWMutex
 	tunnels         []proto.Tunnel
 	preMasterSecret []byte
-	ClientID        uint64
+	ClientID        crypto.UUID
 }
 
-func (c *Control) GenerateClientId() uint64 {
-	c.ClientID = atomic.AddUint64(&currentClientID, 1)
+func (c *Control) GenerateClientId() crypto.UUID {
+	c.ClientID = crypto.GenUUID()
 	return c.ClientID
 }
 
@@ -79,11 +75,26 @@ func (c *Control) ClientSyncTunnels() error {
 	return nil
 }
 
-func (c *Control) getIdlePipe() *Pipe {
+func (c *Control) getPipe() *Pipe {
+	var temp *Pipe
 	c.idleLock.RLock()
-	temp := c.idle[0]
+	if len(c.idle) > 0 {
+		temp = c.idle[len(c.idle)-1]
+	}
 	c.idleLock.RUnlock()
 	return temp
+}
+
+func (c *Control) putPipe(p *Pipe) bool {
+	isPut := true
+	c.idleLock.RLock()
+	if len(c.idle) < maxIdlePipes {
+		c.idle = append(c.idle, p)
+	} else {
+		isPut = false
+	}
+	c.idleLock.RUnlock()
+	return isPut
 }
 
 func (c *Control) ServerSyncTunnels(serverDomain string) error {
@@ -109,12 +120,18 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 				go func() error {
 					defer conn.Close()
 					fmt.Println("open stream:", idx)
-					p := c.getIdlePipe()
+					p := c.getPipe()
+					p.Lock.Lock()
 					stream, err := p.GetStream(t.LocalAddress)
 					if err != nil {
+						p.Lock.Unlock()
 						return errors.Wrap(err, "p.GetStream")
 					}
 					defer stream.Close()
+					if p.StreamsNum() < 8 {
+						c.putPipe(p)
+					}
+					p.Lock.Unlock()
 
 					p1die := make(chan struct{})
 					p2die := make(chan struct{})
@@ -179,7 +196,7 @@ func (c *Control) ClientHandShake() error {
 	}
 	cidm := body.(*msg.ClientIDExchange)
 
-	c.ClientID = uint64(cidm.ClientID)
+	c.ClientID = cidm.ClientID
 	fmt.Println("client_id:", c.ClientID)
 
 	return nil

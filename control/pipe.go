@@ -5,31 +5,28 @@ import (
 	"Lunnel/msg"
 	"fmt"
 	"net"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/xtaci/smux"
 )
-
-var maxStreams uint = 4
-var maxIdleStreams uint = 2
 
 func NewPipe(conn net.Conn, ctl *Control) *Pipe {
 	return &Pipe{pipeConn: conn, ctl: ctl}
 }
 
 type Pipe struct {
-	pipeConn   net.Conn
-	ctl        *Control
-	busy       []*smux.Stream
-	idle       []*smux.Stream
-	maxStreams uint64
-	maxIdles   uint64
-	sess       *smux.Session
-
+	pipeConn  net.Conn
+	ctl       *Control
+	sess      *smux.Session
+	Lock      sync.Mutex
 	MasterKey []byte
 	ID        crypto.UUID
 }
 
+func (p *Pipe) StreamsNum() int {
+	return p.sess.NumStreams()
+}
 func (p *Pipe) GetStream(tunnel string) (*smux.Stream, error) {
 	return p.sess.OpenStream(tunnel)
 }
@@ -105,8 +102,7 @@ func (p *Pipe) ServerHandShake() error {
 		return errors.Wrap(err, "smux.Client")
 	}
 	p.sess = sess
-	p.ctl.idleLock.Lock()
-	p.ctl.idle = append(p.ctl.idle, p)
-	p.ctl.idleLock.Unlock()
+
+	p.ctl.putPipe(p)
 	return nil
 }

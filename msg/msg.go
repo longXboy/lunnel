@@ -18,6 +18,7 @@ const (
 	TypeClientID          MsgType = 3
 	TypePipeHandShake     MsgType = 4
 	TypeSyncTunnel        MsgType = 5
+	TypePipeReq           MsgType = 6
 )
 
 type CipherKeyExchange struct {
@@ -25,12 +26,12 @@ type CipherKeyExchange struct {
 }
 
 type ClientIDExchange struct {
-	ClientID uint64
+	ClientID crypto.UUID
 }
 
 type PipeHandShake struct {
 	PipeID   crypto.UUID
-	ClientID uint64
+	ClientID crypto.UUID
 }
 
 type SyncTunnels struct {
