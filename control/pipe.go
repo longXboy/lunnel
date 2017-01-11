@@ -11,6 +11,8 @@ import (
 	"github.com/xtaci/smux"
 )
 
+var maxStreams = 6
+
 func NewPipe(conn net.Conn, ctl *Control) *Pipe {
 	return &Pipe{pipeConn: conn, ctl: ctl}
 }

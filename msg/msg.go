@@ -19,6 +19,8 @@ const (
 	TypePipeHandShake     MsgType = 4
 	TypeSyncTunnel        MsgType = 5
 	TypePipeReq           MsgType = 6
+	TypePing              MsgType = 7
+	TypePong              MsgType = 8
 )
 
 type CipherKeyExchange struct {
@@ -81,6 +83,8 @@ func ReadMsg(r io.Reader) (MsgType, interface{}, error) {
 		out = new(ClientIDExchange)
 	} else if MsgType(header[0]) == TypeSyncTunnel {
 		out = new(SyncTunnels)
+	} else if MsgType(header[0]) == TypePipeReq || MsgType(header[0]) == TypePing || MsgType(header[0]) == TypePong {
+		return MsgType(header[0]), nil, nil
 	} else {
 		return 0, nil, fmt.Errorf("invalid msg type %d", header[0])
 	}

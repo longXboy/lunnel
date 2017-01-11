@@ -6,7 +6,7 @@ import (
 	"net"
 )
 
-var initialVector = []byte{167, 115, 79, 156, 18, 172, 27, 1, 164, 21, 242, 193, 252, 120, 230, 107}
+var initialVector = []byte{55, 33, 111, 156, 18, 172, 34, 2, 164, 99, 252, 122, 252, 133, 12, 55}
 
 type cryptoConn struct {
 	rawConn net.Conn

@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -26,8 +28,11 @@ const (
 	ProtoUnixSock Proto = 4
 )
 
-var maxPipes int = 8
+var minPipes int = 2
+var maxPipes int = 16
 var maxIdlePipes int = 4
+
+var currentPipes = 0
 
 var ControlMapLock sync.RWMutex
 var ControlMap = make(map[crypto.UUID]*Control)
@@ -46,7 +51,12 @@ type Control struct {
 	idleLock        sync.RWMutex
 	tunnels         []proto.Tunnel
 	preMasterSecret []byte
-	ClientID        crypto.UUID
+
+	lastPong    uint64
+	pongChan    chan struct{}
+	pipeReqChan chan struct{}
+	dieChan     chan struct{}
+	ClientID    crypto.UUID
 }
 
 func (c *Control) GenerateClientId() crypto.UUID {
@@ -56,23 +66,6 @@ func (c *Control) GenerateClientId() crypto.UUID {
 
 func (c *Control) Close() error {
 	return c.ctlConn.Close()
-}
-
-func (c *Control) ClientSyncTunnels() error {
-	cstm := new(msg.SyncTunnels)
-	cstm.Tunnels = c.tunnels
-	err := msg.WriteMsg(c.ctlConn, msg.TypeSyncTunnel, *cstm)
-	if err != nil {
-		return errors.Wrap(err, "WriteMsg cstm")
-	}
-	_, body, err := msg.ReadMsg(c.ctlConn)
-	if err != nil {
-		return errors.Wrap(err, "ReadMsg cstm")
-	}
-	cstm = body.(*msg.SyncTunnels)
-	c.tunnels = cstm.Tunnels
-	fmt.Printf("tunnels:%v\n", c.tunnels)
-	return nil
 }
 
 func (c *Control) getPipe() *Pipe {
@@ -95,6 +88,61 @@ func (c *Control) putPipe(p *Pipe) bool {
 	}
 	c.idleLock.RUnlock()
 	return isPut
+}
+
+func (c *Control) ClientSyncTunnels() error {
+	cstm := new(msg.SyncTunnels)
+	cstm.Tunnels = c.tunnels
+	err := msg.WriteMsg(c.ctlConn, msg.TypeSyncTunnel, *cstm)
+	if err != nil {
+		return errors.Wrap(err, "WriteMsg cstm")
+	}
+	_, body, err := msg.ReadMsg(c.ctlConn)
+	if err != nil {
+		return errors.Wrap(err, "ReadMsg cstm")
+	}
+	cstm = body.(*msg.SyncTunnels)
+	c.tunnels = cstm.Tunnels
+	fmt.Printf("tunnels:%v\n", c.tunnels)
+	return nil
+}
+
+func (c *Control) read() {
+	for {
+		mType, _, err := msg.ReadMsg(c.ctlConn)
+		if err != nil {
+			c.dieChan <- struct{}{}
+			return
+		}
+		if mType == msg.TypePong {
+			atomic.StoreUint64(&c.lastPong, uint64(time.Now().UnixNano()))
+		} else if mType == msg.TypePing {
+
+		}
+	}
+}
+
+func (c *Control) Serve() error {
+	var err error
+	ticker := time.NewTicker(time.Second * 3)
+	select {
+	case _ = <-ticker.C:
+		if (uint64(time.Now().UnixNano()) - atomic.LoadUint64(&c.lastPong)) > uint64(time.Second*24) {
+			return nil
+		}
+		err = msg.WriteMsg(c.ctlConn, msg.TypePing, nil)
+		if err != nil {
+			return errors.Wrap(err, "write Ping msg")
+		}
+	case _ = <-c.pipeReqChan:
+		err = msg.WriteMsg(c.ctlConn, msg.TypePipeReq, nil)
+		if err != nil {
+			return errors.Wrap(err, "write PipeReq msg")
+		}
+	case _ = <-c.dieChan:
+		return nil
+	}
+	return nil
 }
 
 func (c *Control) ServerSyncTunnels(serverDomain string) error {
@@ -127,8 +175,15 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 						p.Lock.Unlock()
 						return errors.Wrap(err, "p.GetStream")
 					}
-					defer stream.Close()
-					if p.StreamsNum() < 8 {
+					defer func() {
+						p.Lock.Lock()
+						stream.Close()
+						if p.StreamsNum() < (maxStreams/3)*2+1 {
+							c.putPipe(p)
+						}
+						p.Lock.Unlock()
+					}()
+					if p.StreamsNum() < maxStreams {
 						c.putPipe(p)
 					}
 					p.Lock.Unlock()
