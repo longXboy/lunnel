@@ -29,6 +29,7 @@ const (
 	IKCP_THRESH_MIN  = 2
 	IKCP_PROBE_INIT  = 7000   // 7 secs to probe window size
 	IKCP_PROBE_LIMIT = 120000 // up to 120 secs to probe window
+	IKCP_RTT_RESET   = 60000
 )
 
 // Output is a closure which captures conn and calls conn.Write
@@ -130,7 +131,7 @@ type KCP struct {
 	ssthresh                               uint32
 	rx_rttval, rx_srtt, rx_rto, rx_minrto  uint32
 	snd_wnd, rcv_wnd, rmt_wnd, cwnd, probe uint32
-	current, interval, ts_flush, xmit      uint32
+	interval, ts_flush, xmit               uint32
 	nodelay, updated                       uint32
 	ts_probe, probe_wait                   uint32
 	dead_link, incr                        uint32
@@ -351,8 +352,8 @@ func (kcp *KCP) Send(buffer []byte) int {
 	return 0
 }
 
-// https://tools.ietf.org/html/rfc6298
 func (kcp *KCP) update_ack(rtt int32) {
+	// https://tools.ietf.org/html/rfc6298
 	var rto uint32
 	if kcp.rx_srtt == 0 {
 		kcp.rx_srtt = uint32(rtt)
@@ -488,6 +489,7 @@ func (kcp *KCP) parse_data(newseg *Segment) {
 
 // Input when you received a low level packet (eg. UDP packet), call it
 func (kcp *KCP) Input(data []byte, update_ack bool) int {
+	current := currentMs()
 	una := kcp.snd_una
 	if len(data) < IKCP_OVERHEAD {
 		return -1
@@ -530,8 +532,8 @@ func (kcp *KCP) Input(data []byte, update_ack bool) int {
 		kcp.shrink_buf()
 
 		if cmd == IKCP_CMD_ACK {
-			if update_ack && _itimediff(kcp.current, ts) >= 0 {
-				kcp.update_ack(_itimediff(kcp.current, ts))
+			if update_ack && _itimediff(current, ts) >= 0 {
+				kcp.update_ack(_itimediff(current, ts))
 			}
 			kcp.parse_ack(sn)
 			kcp.shrink_buf()
@@ -612,7 +614,6 @@ func (kcp *KCP) wnd_unused() int32 {
 
 // flush pending data
 func (kcp *KCP) flush() {
-	current := kcp.current
 	buffer := kcp.buffer
 	change := 0
 	lost := false
@@ -642,13 +643,14 @@ func (kcp *KCP) flush() {
 	}
 	kcp.acklist = nil
 
+	current := currentMs()
 	// probe window size (if remote window size equals zero)
 	if kcp.rmt_wnd == 0 {
 		if kcp.probe_wait == 0 {
 			kcp.probe_wait = IKCP_PROBE_INIT
-			kcp.ts_probe = kcp.current + kcp.probe_wait
+			kcp.ts_probe = current + kcp.probe_wait
 		} else {
-			if _itimediff(kcp.current, kcp.ts_probe) >= 0 {
+			if _itimediff(current, kcp.ts_probe) >= 0 {
 				if kcp.probe_wait < IKCP_PROBE_INIT {
 					kcp.probe_wait = IKCP_PROBE_INIT
 				}
@@ -656,7 +658,7 @@ func (kcp *KCP) flush() {
 				if kcp.probe_wait > IKCP_PROBE_LIMIT {
 					kcp.probe_wait = IKCP_PROBE_LIMIT
 				}
-				kcp.ts_probe = kcp.current + kcp.probe_wait
+				kcp.ts_probe = current + kcp.probe_wait
 				kcp.probe |= IKCP_ASK_SEND
 			}
 		}
@@ -708,7 +710,7 @@ func (kcp *KCP) flush() {
 		newseg.ts = current
 		newseg.sn = kcp.snd_nxt
 		newseg.una = kcp.rcv_nxt
-		newseg.resendts = current
+		newseg.resendts = newseg.ts
 		newseg.rto = kcp.rx_rto
 		kcp.snd_buf = append(kcp.snd_buf, newseg)
 		kcp.snd_nxt++
@@ -728,14 +730,13 @@ func (kcp *KCP) flush() {
 	if kcp.fastresend <= 0 {
 		resent = 0xffffffff
 	}
+
 	rtomin := (kcp.rx_rto >> 3)
-	if kcp.nodelay != 0 {
-		rtomin = 0
-	}
 
 	// flush data segments
 	var lostSegs, fastRetransSegs, earlyRetransSegs uint64
 	for k := range kcp.snd_buf {
+		current := currentMs()
 		segment := &kcp.snd_buf[k]
 		needsend := false
 		if segment.xmit == 0 {
@@ -842,27 +843,26 @@ func (kcp *KCP) flush() {
 // Update updates state (call it repeatedly, every 10ms-100ms), or you can ask
 // ikcp_check when to call it again (without ikcp_input/_send calling).
 // 'current' - current timestamp in millisec.
-func (kcp *KCP) Update(current uint32) {
+func (kcp *KCP) Update() {
 	var slap int32
 
-	kcp.current = current
-
+	current := currentMs()
 	if kcp.updated == 0 {
 		kcp.updated = 1
-		kcp.ts_flush = kcp.current
+		kcp.ts_flush = current
 	}
 
-	slap = _itimediff(kcp.current, kcp.ts_flush)
+	slap = _itimediff(current, kcp.ts_flush)
 
 	if slap >= 10000 || slap < -10000 {
-		kcp.ts_flush = kcp.current
+		kcp.ts_flush = current
 		slap = 0
 	}
 
 	if slap >= 0 {
 		kcp.ts_flush += kcp.interval
-		if _itimediff(kcp.current, kcp.ts_flush) >= 0 {
-			kcp.ts_flush = kcp.current + kcp.interval
+		if _itimediff(current, kcp.ts_flush) >= 0 {
+			kcp.ts_flush = current + kcp.interval
 		}
 		kcp.flush()
 	}

@@ -32,7 +32,7 @@ const (
 	mtuLimit                 = 2048
 	txQueueLimit             = 8192
 	rxFECMulti               = 3 // FEC keeps rxFECMulti* (dataShard+parityShard) ordered packets in memory
-	defaultKeepAliveInterval = 10 * time.Second
+	defaultKeepAliveInterval = 10
 )
 
 const (
@@ -70,7 +70,7 @@ type (
 		headerSize        int
 		ackNoDelay        bool
 		isClosed          bool
-		keepAliveInterval time.Duration
+		keepAliveInterval int32
 		mu                sync.Mutex
 	}
 
@@ -87,7 +87,7 @@ type (
 func newUDPSession(conv uint32, dataShards, parityShards int, l *Listener, conn net.PacketConn, remote net.Addr, block BlockCrypt) *UDPSession {
 	sess := new(UDPSession)
 	sess.chTicker = make(chan time.Time, 1)
-	sess.chUDPOutput = make(chan []byte, txQueueLimit)
+	sess.chUDPOutput = make(chan []byte)
 	sess.die = make(chan struct{})
 	sess.chReadEvent = make(chan struct{}, 1)
 	sess.chWriteEvent = make(chan struct{}, 1)
@@ -222,7 +222,6 @@ func (s *UDPSession) Write(b []byte) (n int, err error) {
 					b = b[max:]
 				}
 			}
-			s.kcp.current = currentMs()
 			s.kcp.flush()
 			s.mu.Unlock()
 			atomic.AddUint64(&DefaultSnmp.BytesSent, uint64(n))
@@ -378,9 +377,7 @@ func (s *UDPSession) SetWriteBuffer(bytes int) error {
 
 // SetKeepAlive changes per-connection NAT keepalive interval; 0 to disable, default to 10s
 func (s *UDPSession) SetKeepAlive(interval int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.keepAliveInterval = time.Duration(interval) * time.Second
+	atomic.StoreInt32(&s.keepAliveInterval, int32(interval))
 }
 
 func (s *UDPSession) outputTask() {
@@ -460,27 +457,29 @@ func (s *UDPSession) outputTask() {
 				}
 			}
 
+			nbytes := 0
+			nsegs := 0
 			// if mrand.Intn(100) < 50 {
 			if n, err := s.conn.WriteTo(ext, s.remote); err == nil {
-				atomic.AddUint64(&DefaultSnmp.OutSegs, 1)
-				atomic.AddUint64(&DefaultSnmp.OutBytes, uint64(n))
+				nbytes += n
+				nsegs++
 			}
 			// }
 
 			if ecc != nil {
 				for k := range ecc {
 					if n, err := s.conn.WriteTo(ecc[k], s.remote); err == nil {
-						atomic.AddUint64(&DefaultSnmp.OutSegs, 1)
-						atomic.AddUint64(&DefaultSnmp.OutBytes, uint64(n))
+						nbytes += n
+						nsegs++
 					}
 				}
 			}
+			atomic.AddUint64(&DefaultSnmp.OutSegs, uint64(nsegs))
+			atomic.AddUint64(&DefaultSnmp.OutBytes, uint64(nbytes))
 			xmitBuf.Put(ext)
 		case <-ticker.C: // NAT keep-alive
 			if len(s.chUDPOutput) == 0 {
-				s.mu.Lock()
-				interval := s.keepAliveInterval
-				s.mu.Unlock()
+				interval := time.Duration(atomic.LoadInt32(&s.keepAliveInterval)) * time.Second
 				if interval > 0 && time.Now().After(lastPing.Add(interval)) {
 					var rnd uint16
 					binary.Read(rand.Reader, binary.LittleEndian, &rnd)
@@ -512,8 +511,7 @@ func (s *UDPSession) updateTask() {
 		select {
 		case <-tc:
 			s.mu.Lock()
-			current := currentMs()
-			s.kcp.Update(current)
+			s.kcp.Update()
 			if s.kcp.WaitSnd() < 2*int(s.kcp.snd_wnd) {
 				s.notifyWriteEvent()
 			}
@@ -550,7 +548,6 @@ func (s *UDPSession) notifyWriteEvent() {
 }
 
 func (s *UDPSession) kcpInput(data []byte) {
-	current := currentMs()
 	if s.fec != nil {
 		f := s.fec.decode(data)
 		if f.flag == typeData || f.flag == typeFEC {
@@ -560,8 +557,6 @@ func (s *UDPSession) kcpInput(data []byte) {
 
 			if recovers := s.fec.input(f); recovers != nil {
 				s.mu.Lock()
-				s.kcp.current = current
-
 				kcpInErrors := uint64(0)
 				fecErrs := uint64(0)
 				fecRecovered := uint64(0)
@@ -589,7 +584,6 @@ func (s *UDPSession) kcpInput(data []byte) {
 		}
 		if f.flag == typeData {
 			s.mu.Lock()
-			s.kcp.current = current
 			if ret := s.kcp.Input(data[fecHeaderSizePlus2:], true); ret != 0 {
 				atomic.AddUint64(&DefaultSnmp.KCPInErrors, 1)
 			}
@@ -597,7 +591,6 @@ func (s *UDPSession) kcpInput(data []byte) {
 		}
 	} else {
 		s.mu.Lock()
-		s.kcp.current = current
 		if ret := s.kcp.Input(data, true); ret != 0 {
 			atomic.AddUint64(&DefaultSnmp.KCPInErrors, 1)
 		}
@@ -610,7 +603,6 @@ func (s *UDPSession) kcpInput(data []byte) {
 		s.notifyReadEvent()
 	}
 	if s.ackNoDelay {
-		s.kcp.current = current
 		s.kcp.flush()
 	}
 	s.mu.Unlock()
