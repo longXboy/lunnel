@@ -4,6 +4,7 @@ import (
 	"Lunnel/crypto"
 	"Lunnel/msg"
 	"Lunnel/proto"
+	"Lunnel/util"
 	"fmt"
 	"io"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/xtaci/smux"
 )
 
 type Options struct {
@@ -31,6 +33,8 @@ const (
 var minPipes int = 2
 var maxPipes int = 16
 var maxIdlePipes int = 4
+var pingInterval time.Duration = time.Second * 8
+var pingTimeout time.Duration = time.Second * 21
 
 var currentPipes = 0
 
@@ -38,25 +42,41 @@ var ControlMapLock sync.RWMutex
 var ControlMap = make(map[crypto.UUID]*Control)
 
 func NewControl(conn net.Conn, opt *Options) *Control {
-	ctl := &Control{ctlConn: conn}
+	ctl := &Control{
+		ctlConn:   conn,
+		pipeReq:   make(chan chan *Pipe),
+		pipeReady: make(chan *Pipe),
+		dying:     make(chan struct{}),
+		toDie:     make(chan struct{}),
+		writeChan: make(chan writeReq),
+	}
 	if opt != nil {
 		ctl.tunnels = opt.Tunnels
 	}
 	return ctl
 }
 
+type writeReq struct {
+	mType msg.MsgType
+	body  interface{}
+}
+
 type Control struct {
 	ctlConn         net.Conn
-	idle            []*Pipe
-	idleLock        sync.RWMutex
 	tunnels         []proto.Tunnel
+	pipes           []*Pipe
 	preMasterSecret []byte
+	lastRead        uint64
 
-	lastPong    uint64
-	pongChan    chan struct{}
-	pipeReqChan chan struct{}
-	dieChan     chan struct{}
-	ClientID    crypto.UUID
+	pipeReq   chan chan *Pipe
+	pipeReady chan *Pipe
+	dying     chan struct{}
+	toDie     chan struct{}
+	rmPipe    chan *Pipe
+	rmTunnel  chan *proto.Tunnel
+	writeChan chan writeReq
+
+	ClientID crypto.UUID
 }
 
 func (c *Control) GenerateClientId() crypto.UUID {
@@ -64,30 +84,113 @@ func (c *Control) GenerateClientId() crypto.UUID {
 	return c.ClientID
 }
 
-func (c *Control) Close() error {
-	return c.ctlConn.Close()
+func (c *Control) Close() {
+	select {
+	case c.toDie <- struct{}{}:
+	default:
+	}
+	return
 }
 
-func (c *Control) getPipe() *Pipe {
-	var temp *Pipe
-	c.idleLock.RLock()
-	if len(c.idle) > 0 {
-		temp = c.idle[len(c.idle)-1]
+func (c *Control) IsClosed() bool {
+	select {
+	case <-c.dying:
+		return true
+	default:
+		return false
 	}
-	c.idleLock.RUnlock()
-	return temp
 }
 
-func (c *Control) putPipe(p *Pipe) bool {
-	isPut := true
-	c.idleLock.RLock()
-	if len(c.idle) < maxIdlePipes {
-		c.idle = append(c.idle, p)
-	} else {
-		isPut = false
+func (c *Control) moderator() {
+	_ = <-c.toDie
+	close(c.dying)
+	c.ctlConn.Close()
+}
+
+func (c *Control) createPipe() {
+	pipeConn, err := CreateConn("www.longxboy.com:8081", true)
+	if err != nil {
+		panic(err)
 	}
-	c.idleLock.RUnlock()
-	return isPut
+	pipe := NewPipe(pipeConn, c)
+	defer pipe.Close()
+	pipe.ClientHandShake()
+
+	cryptoConn, err := crypto.NewCryptoConn(pipeConn, pipe.MasterKey)
+	if err != nil {
+		panic(err)
+	}
+	smuxConfig := smux.DefaultConfig()
+	smuxConfig.MaxReceiveBuffer = 4194304
+	mux, err := smux.Server(cryptoConn, smuxConfig)
+	if err != nil {
+		panic(err)
+		return
+	}
+	defer mux.Close()
+	idx := 0
+	for {
+		if c.IsClosed() {
+			return
+		}
+		stream, err := mux.AcceptStream()
+		if err != nil {
+			panic(err)
+			return
+		}
+		idx++
+		go func() {
+			defer stream.Close()
+			fmt.Println("open stream:", idx)
+			conn, err := net.Dial("tcp", stream.Tunnel())
+			if err != nil {
+				panic(err)
+			}
+			defer conn.Close()
+			p1die := make(chan struct{})
+			p2die := make(chan struct{})
+
+			go func() {
+				io.Copy(stream, conn)
+				close(p1die)
+				fmt.Println("dst copy done:", idx)
+			}()
+			go func() {
+				io.Copy(conn, stream)
+				close(p2die)
+				fmt.Println("src copy done:", idx)
+			}()
+			select {
+			case <-p1die:
+			case <-p2die:
+			}
+			fmt.Println("close Stream:", idx)
+
+		}()
+	}
+}
+
+func (c *Control) getPipe(ch chan *Pipe) *Pipe {
+	select {
+	case c.pipeReq <- ch:
+	case _ = <-c.dying:
+		return nil
+	}
+	select {
+	case pipe := <-ch:
+		return pipe
+	case _ = <-c.dying:
+		return nil
+	}
+}
+
+func (c *Control) putPipe(p *Pipe) {
+	select {
+	case c.pipeReady <- p:
+	case _ = <-c.dying:
+		return
+	}
+	return
 }
 
 func (c *Control) ClientSyncTunnels() error {
@@ -107,42 +210,156 @@ func (c *Control) ClientSyncTunnels() error {
 	return nil
 }
 
-func (c *Control) read() {
+func (c *Control) recvLoop() {
 	for {
-		mType, _, err := msg.ReadMsg(c.ctlConn)
-		if err != nil {
-			c.dieChan <- struct{}{}
+		if c.IsClosed() {
 			return
 		}
-		if mType == msg.TypePong {
-			atomic.StoreUint64(&c.lastPong, uint64(time.Now().UnixNano()))
-		} else if mType == msg.TypePing {
-
+		mType, _, err := msg.ReadMsg(c.ctlConn)
+		if err != nil {
+			c.Close()
+			return
+		}
+		atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
+		switch mType {
+		case msg.TypePong:
+		case msg.TypePing:
+			c.writeChan <- writeReq{msg.TypePong, nil}
+		case msg.TypePipeReq:
+			var ch chan *Pipe
+			select {
+			case c.pipeReq <- ch:
+			case _ = <-c.dying:
+				return
+			}
 		}
 	}
 }
 
-func (c *Control) Serve() error {
-	var err error
-	ticker := time.NewTicker(time.Second * 3)
-	select {
-	case _ = <-ticker.C:
-		if (uint64(time.Now().UnixNano()) - atomic.LoadUint64(&c.lastPong)) > uint64(time.Second*24) {
-			return nil
+func (c *Control) writeLoop() {
+	lastWrite := time.Now()
+	for {
+		if c.IsClosed() {
+			return
 		}
-		err = msg.WriteMsg(c.ctlConn, msg.TypePing, nil)
-		if err != nil {
-			return errors.Wrap(err, "write Ping msg")
+		select {
+		case msgBody := <-c.writeChan:
+			if msgBody.mType == msg.TypePing || msgBody.mType == msg.TypePong {
+				if time.Now().Before(lastWrite.Add(pingInterval / 2)) {
+					continue
+				}
+			}
+
+			lastWrite = time.Now()
+			err := msg.WriteMsg(c.ctlConn, msgBody.mType, msgBody.body)
+			if err != nil {
+				c.Close()
+				return
+			}
+		case _ = <-c.dying:
+			return
 		}
-	case _ = <-c.pipeReqChan:
-		err = msg.WriteMsg(c.ctlConn, msg.TypePipeReq, nil)
-		if err != nil {
-			return errors.Wrap(err, "write PipeReq msg")
-		}
-	case _ = <-c.dieChan:
-		return nil
 	}
-	return nil
+
+}
+
+func (c *Control) Run() {
+	go c.moderator()
+
+	ticker := time.NewTicker(pingInterval)
+	for {
+		select {
+		case _ = <-ticker.C:
+			if (uint64(time.Now().UnixNano()) - atomic.LoadUint64(&c.lastRead)) > uint64(pingTimeout) {
+				c.Close()
+				return
+			}
+			select {
+			case c.writeChan <- writeReq{msg.TypePing, nil}:
+			case _ = <-c.dying:
+				return
+			}
+		case _ = <-c.pipeReq:
+			go c.createPipe()
+		case _ = <-c.dying:
+			return
+		}
+	}
+}
+
+func (c *Control) Serve() {
+	go c.moderator()
+
+	//if pipeReq wait num is out of waitQueue size,we drop the req
+	reqWaits := util.NewLoopQueue(128)
+	idles := util.NewLoopQueue(maxIdlePipes)
+
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case _ = <-ticker.C:
+			if (uint64(time.Now().UnixNano()) - atomic.LoadUint64(&c.lastRead)) > uint64(pingTimeout) {
+				c.Close()
+				return
+			}
+			select {
+			case c.writeChan <- writeReq{msg.TypePing, nil}:
+			case _ = <-c.dying:
+				return
+			}
+		case reqCh := <-c.pipeReq:
+			idlePipe := idles.Get().(*Pipe)
+			if idlePipe == nil {
+				if reqWaits.Put(reqCh) {
+					select {
+					case c.writeChan <- writeReq{msg.TypePipeReq, nil}:
+					case _ = <-c.dying:
+						return
+					}
+				} else {
+					select {
+					case reqCh <- nil:
+					case _ = <-c.dying:
+						return
+					}
+				}
+			} else {
+				select {
+				case reqCh <- idlePipe:
+				case _ = <-c.dying:
+					return
+				}
+			}
+		case ready := <-c.pipeReady:
+			if ready.StreamsNum() < maxStreams {
+				reqCh := reqWaits.Get().(chan *Pipe)
+				if reqCh == nil {
+					if !ready.isIdle {
+						if !idles.Put(ready) {
+							ready.Close()
+						} else {
+							ready.isIdle = true
+						}
+					}
+				} else {
+					select {
+					case reqCh <- ready:
+					case _ = <-c.dying:
+						return
+					}
+				}
+			} else if ready.StreamsNum() == maxStreams {
+				ready.isIdle = false
+			} else {
+				panic("ready pipe's streams num is out of limitaion")
+			}
+		case _ = <-c.dying:
+			return
+		}
+	}
+
 }
 
 func (c *Control) ServerSyncTunnels(serverDomain string) error {
@@ -157,36 +374,34 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 		if err != nil {
 			return errors.Wrap(err, "binding TCP listener")
 		}
-		go func() error {
+		go func() {
 			idx := 0
+			pipeChan := make(chan *Pipe)
+			defer close(pipeChan)
 			for {
+				if c.IsClosed() {
+					return
+				}
 				conn, err := lis.Accept()
 				if err != nil {
-					return errors.Wrap(err, "lis.Accept")
+					return
 				}
 				idx++
-				go func() error {
+				go func() {
 					defer conn.Close()
 					fmt.Println("open stream:", idx)
-					p := c.getPipe()
-					p.Lock.Lock()
+					p := c.getPipe(pipeChan)
+					if p == nil {
+						fmt.Println("failed to get pipes!")
+						return
+					}
+					defer c.putPipe(p)
 					stream, err := p.GetStream(t.LocalAddress)
 					if err != nil {
-						p.Lock.Unlock()
-						return errors.Wrap(err, "p.GetStream")
+						return
 					}
-					defer func() {
-						p.Lock.Lock()
-						stream.Close()
-						if p.StreamsNum() < (maxStreams/3)*2+1 {
-							c.putPipe(p)
-						}
-						p.Lock.Unlock()
-					}()
-					if p.StreamsNum() < maxStreams {
-						c.putPipe(p)
-					}
-					p.Lock.Unlock()
+					defer stream.Close()
+					c.putPipe(p)
 
 					p1die := make(chan struct{})
 					p2die := make(chan struct{})
@@ -205,7 +420,7 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 					case <-p2die:
 					}
 					fmt.Println("close Stream:", idx)
-					return nil
+					return
 				}()
 			}
 		}()

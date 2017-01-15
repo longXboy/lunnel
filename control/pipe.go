@@ -5,7 +5,6 @@ import (
 	"Lunnel/msg"
 	"fmt"
 	"net"
-	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/xtaci/smux"
@@ -19,9 +18,9 @@ func NewPipe(conn net.Conn, ctl *Control) *Pipe {
 
 type Pipe struct {
 	pipeConn  net.Conn
+	isIdle    bool
 	ctl       *Control
 	sess      *smux.Session
-	Lock      sync.Mutex
 	MasterKey []byte
 	ID        crypto.UUID
 }
@@ -39,7 +38,7 @@ func (p *Pipe) GeneratePipeID() crypto.UUID {
 }
 
 func (p *Pipe) Close() error {
-	return p.pipeConn.Close()
+	return p.sess.Close()
 }
 
 func (p *Pipe) ClientHandShake() error {
@@ -63,9 +62,6 @@ func (p *Pipe) ClientHandShake() error {
 	p.MasterKey = masterKey
 	fmt.Println("masterKey:", masterKey)
 
-	p.ctl.idleLock.Lock()
-	p.ctl.idle = append(p.ctl.idle, p)
-	p.ctl.idleLock.Unlock()
 	return nil
 }
 

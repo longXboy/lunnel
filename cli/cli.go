@@ -2,21 +2,16 @@ package main
 
 import (
 	"Lunnel/control"
-	"Lunnel/crypto"
-	"Lunnel/kcp"
 	"Lunnel/proto"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net"
-	"time"
 
 	"github.com/klauspost/compress/snappy"
 	"github.com/pkg/errors"
-	"github.com/xtaci/smux"
 )
 
 func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
@@ -45,7 +40,7 @@ func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 }
 
 func main() {
-	conn, err := createConn("www.longxboy.com:8080", true)
+	conn, err := control.CreateConn("www.longxboy.com:8080", true)
 	if err != nil {
 		panic(err)
 	}
@@ -71,64 +66,8 @@ func main() {
 	if err != nil {
 		panic(errors.Wrap(err, "ctl.ClientSyncTunnels"))
 	}
-	pipeConn, err := createConn("www.longxboy.com:8081", true)
-	if err != nil {
-		panic(err)
-	}
-	pipe := control.NewPipe(pipeConn, ctl)
-	defer pipe.Close()
-	pipe.ClientHandShake()
+	ctl.Run()
 
-	cryptoConn, err := crypto.NewCryptoConn(pipeConn, pipe.MasterKey)
-	if err != nil {
-		panic(err)
-	}
-	smuxConfig := smux.DefaultConfig()
-	smuxConfig.MaxReceiveBuffer = 4194304
-	mux, err := smux.Server(cryptoConn, smuxConfig)
-	if err != nil {
-		panic(err)
-		return
-	}
-	defer mux.Close()
-	idx := 0
-	for {
-		stream, err := mux.AcceptStream()
-		if err != nil {
-			panic(err)
-			return
-		}
-		idx++
-		go func() {
-			defer stream.Close()
-			fmt.Println("open stream:", idx)
-			conn, err := net.Dial("tcp", stream.Tunnel())
-			if err != nil {
-				panic(err)
-			}
-			defer conn.Close()
-			p1die := make(chan struct{})
-			p2die := make(chan struct{})
-
-			go func() {
-				io.Copy(stream, conn)
-				close(p1die)
-				fmt.Println("dst copy done:", idx)
-			}()
-			go func() {
-				io.Copy(conn, stream)
-				close(p2die)
-				fmt.Println("src copy done:", idx)
-			}()
-			select {
-			case <-p1die:
-			case <-p2die:
-			}
-			fmt.Println("close Stream:", idx)
-
-		}()
-	}
-	time.Sleep(time.Second * 3)
 }
 
 type compStream struct {
@@ -156,13 +95,4 @@ func (c *compStream) Write(p []byte) (n int, err error) {
 
 func (c *compStream) Close() error {
 	return c.conn.Close()
-}
-
-func createConn(addr string, noComp bool) (net.Conn, error) {
-	fmt.Println("open conn:", addr)
-	kcpconn, err := kcp.Dial(addr)
-	if err != nil {
-		return nil, errors.Wrap(err, "kcp dial")
-	}
-	return kcpconn, nil
 }

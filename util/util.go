@@ -21,3 +21,40 @@ func IntToReadable(a uint64) []byte {
 	}
 	return link
 }
+
+type LoopQueue struct {
+	queue     []interface{}
+	maxLength int
+	elemNum   int
+	firstElem int
+}
+
+func NewLoopQueue(maxLength int) *LoopQueue {
+	loop := LoopQueue{
+		queue: make([]interface{}, maxLength),
+	}
+	return &loop
+}
+
+func (loop *LoopQueue) Put(a interface{}) bool {
+	if loop.elemNum >= loop.maxLength {
+		return false
+	}
+	idx := (loop.firstElem + loop.elemNum) % loop.maxLength
+	loop.queue[idx] = a
+	loop.elemNum++
+	return true
+}
+
+func (loop *LoopQueue) Get() interface{} {
+	if loop.elemNum <= 0 {
+		return nil
+	}
+	elem := loop.queue[loop.firstElem]
+	loop.firstElem++
+	if loop.firstElem >= loop.elemNum {
+		loop.firstElem = loop.firstElem % loop.maxLength
+	}
+	loop.elemNum--
+	return elem
+}

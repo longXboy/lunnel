@@ -66,7 +66,7 @@ func handleControl(conn net.Conn) {
 	if err != nil {
 		panic(errors.Wrap(err, "ctl.ServerSyncTunnels"))
 	}
-	time.Sleep(time.Second * 3)
+	ctl.Serve()
 }
 
 func handlePipe(conn net.Conn) {
@@ -75,5 +75,4 @@ func handlePipe(conn net.Conn) {
 	if err != nil {
 		panic(err)
 	}
-
 }
