@@ -1,9 +1,9 @@
-package control
+package main
 
 import (
 	"Lunnel/crypto"
 	"Lunnel/msg"
-	"Lunnel/proto"
+	"Lunnel/pipe"
 	"Lunnel/util"
 	"fmt"
 	"io"
@@ -16,43 +16,27 @@ import (
 	"github.com/xtaci/smux"
 )
 
-type Options struct {
-	Tunnels []proto.Tunnel
-}
-
-type Proto uint8
-
-const (
-	ProtoTCP      Proto = 0
-	ProtoUDP      Proto = 1
-	ProtoHTTP     Proto = 2
-	ProtoHTTPS    Proto = 3
-	ProtoUnixSock Proto = 4
-)
-
 var minPipes int = 2
 var maxPipes int = 16
 var maxIdlePipes int = 4
+var maxStreams = 6
+
 var pingInterval time.Duration = time.Second * 8
 var pingTimeout time.Duration = time.Second * 21
-
-var currentPipes = 0
 
 var ControlMapLock sync.RWMutex
 var ControlMap = make(map[crypto.UUID]*Control)
 
-func NewControl(conn net.Conn, opt *Options) *Control {
+func NewControl(conn net.Conn) *Control {
 	ctl := &Control{
 		ctlConn:   conn,
-		pipeReq:   make(chan chan *Pipe),
-		pipeReady: make(chan *Pipe),
+		pipeReq:   make(chan chan *pipe.Pipe),
+		pipeReady: make(chan *pipe.Pipe),
 		dying:     make(chan struct{}),
 		toDie:     make(chan struct{}),
 		writeChan: make(chan writeReq),
 	}
-	if opt != nil {
-		ctl.tunnels = opt.Tunnels
-	}
+
 	return ctl
 }
 
@@ -61,27 +45,27 @@ type writeReq struct {
 	body  interface{}
 }
 
+type Tunnel struct {
+	msg.Tunnel
+	lis net.Listener
+}
+
 type Control struct {
 	ctlConn         net.Conn
-	tunnels         []proto.Tunnel
-	pipes           []*Pipe
+	tunnels         []Tunnel
+	pipes           []*pipe.Pipe
 	preMasterSecret []byte
 	lastRead        uint64
 
-	pipeReq   chan chan *Pipe
-	pipeReady chan *Pipe
+	pipeReq   chan chan *pipe.Pipe
+	pipeReady chan *pipe.Pipe
 	dying     chan struct{}
 	toDie     chan struct{}
-	rmPipe    chan *Pipe
-	rmTunnel  chan *proto.Tunnel
+	rmPipe    chan *pipe.Pipe
+	rmTunnel  chan *Tunnel
 	writeChan chan writeReq
 
 	ClientID crypto.UUID
-}
-
-func (c *Control) GenerateClientId() crypto.UUID {
-	c.ClientID = crypto.GenUUID()
-	return c.ClientID
 }
 
 func (c *Control) Close() {
@@ -107,70 +91,7 @@ func (c *Control) moderator() {
 	c.ctlConn.Close()
 }
 
-func (c *Control) createPipe() {
-	pipeConn, err := CreateConn("www.longxboy.com:8081", true)
-	if err != nil {
-		panic(err)
-	}
-	pipe := NewPipe(pipeConn, c)
-	defer pipe.Close()
-	pipe.ClientHandShake()
-
-	cryptoConn, err := crypto.NewCryptoConn(pipeConn, pipe.MasterKey)
-	if err != nil {
-		panic(err)
-	}
-	smuxConfig := smux.DefaultConfig()
-	smuxConfig.MaxReceiveBuffer = 4194304
-	mux, err := smux.Server(cryptoConn, smuxConfig)
-	if err != nil {
-		panic(err)
-		return
-	}
-	defer mux.Close()
-	idx := 0
-	for {
-		if c.IsClosed() {
-			return
-		}
-		stream, err := mux.AcceptStream()
-		if err != nil {
-			panic(err)
-			return
-		}
-		idx++
-		go func() {
-			defer stream.Close()
-			fmt.Println("open stream:", idx)
-			conn, err := net.Dial("tcp", stream.Tunnel())
-			if err != nil {
-				panic(err)
-			}
-			defer conn.Close()
-			p1die := make(chan struct{})
-			p2die := make(chan struct{})
-
-			go func() {
-				io.Copy(stream, conn)
-				close(p1die)
-				fmt.Println("dst copy done:", idx)
-			}()
-			go func() {
-				io.Copy(conn, stream)
-				close(p2die)
-				fmt.Println("src copy done:", idx)
-			}()
-			select {
-			case <-p1die:
-			case <-p2die:
-			}
-			fmt.Println("close Stream:", idx)
-
-		}()
-	}
-}
-
-func (c *Control) getPipe(ch chan *Pipe) *Pipe {
+func (c *Control) getPipe(ch chan *pipe.Pipe) *pipe.Pipe {
 	select {
 	case c.pipeReq <- ch:
 	case _ = <-c.dying:
@@ -184,30 +105,13 @@ func (c *Control) getPipe(ch chan *Pipe) *Pipe {
 	}
 }
 
-func (c *Control) putPipe(p *Pipe) {
+func (c *Control) putPipe(p *pipe.Pipe) {
 	select {
 	case c.pipeReady <- p:
 	case _ = <-c.dying:
 		return
 	}
 	return
-}
-
-func (c *Control) ClientSyncTunnels() error {
-	cstm := new(msg.SyncTunnels)
-	cstm.Tunnels = c.tunnels
-	err := msg.WriteMsg(c.ctlConn, msg.TypeSyncTunnel, *cstm)
-	if err != nil {
-		return errors.Wrap(err, "WriteMsg cstm")
-	}
-	_, body, err := msg.ReadMsg(c.ctlConn)
-	if err != nil {
-		return errors.Wrap(err, "ReadMsg cstm")
-	}
-	cstm = body.(*msg.SyncTunnels)
-	c.tunnels = cstm.Tunnels
-	fmt.Printf("tunnels:%v\n", c.tunnels)
-	return nil
 }
 
 func (c *Control) recvLoop() {
@@ -226,7 +130,7 @@ func (c *Control) recvLoop() {
 		case msg.TypePing:
 			c.writeChan <- writeReq{msg.TypePong, nil}
 		case msg.TypePipeReq:
-			var ch chan *Pipe
+			var ch chan *pipe.Pipe
 			select {
 			case c.pipeReq <- ch:
 			case _ = <-c.dying:
@@ -263,32 +167,10 @@ func (c *Control) writeLoop() {
 
 }
 
-func (c *Control) Run() {
-	go c.moderator()
-
-	ticker := time.NewTicker(pingInterval)
-	for {
-		select {
-		case _ = <-ticker.C:
-			if (uint64(time.Now().UnixNano()) - atomic.LoadUint64(&c.lastRead)) > uint64(pingTimeout) {
-				c.Close()
-				return
-			}
-			select {
-			case c.writeChan <- writeReq{msg.TypePing, nil}:
-			case _ = <-c.dying:
-				return
-			}
-		case _ = <-c.pipeReq:
-			go c.createPipe()
-		case _ = <-c.dying:
-			return
-		}
-	}
-}
-
 func (c *Control) Serve() {
 	go c.moderator()
+	go c.recvLoop()
+	go c.writeLoop()
 
 	//if pipeReq wait num is out of waitQueue size,we drop the req
 	reqWaits := util.NewLoopQueue(128)
@@ -310,7 +192,7 @@ func (c *Control) Serve() {
 				return
 			}
 		case reqCh := <-c.pipeReq:
-			idlePipe := idles.Get().(*Pipe)
+			idlePipe := idles.Get().(*pipe.Pipe)
 			if idlePipe == nil {
 				if reqWaits.Put(reqCh) {
 					select {
@@ -334,13 +216,13 @@ func (c *Control) Serve() {
 			}
 		case ready := <-c.pipeReady:
 			if ready.StreamsNum() < maxStreams {
-				reqCh := reqWaits.Get().(chan *Pipe)
+				reqCh := reqWaits.Get().(chan *pipe.Pipe)
 				if reqCh == nil {
-					if !ready.isIdle {
+					if !ready.IsIdle {
 						if !idles.Put(ready) {
 							ready.Close()
 						} else {
-							ready.isIdle = true
+							ready.IsIdle = true
 						}
 					}
 				} else {
@@ -351,7 +233,7 @@ func (c *Control) Serve() {
 					}
 				}
 			} else if ready.StreamsNum() == maxStreams {
-				ready.isIdle = false
+				ready.IsIdle = false
 			} else {
 				panic("ready pipe's streams num is out of limitaion")
 			}
@@ -376,7 +258,7 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 		}
 		go func() {
 			idx := 0
-			pipeChan := make(chan *Pipe)
+			pipeChan := make(chan *pipe.Pipe)
 			defer close(pipeChan)
 			for {
 				if c.IsClosed() {
@@ -426,8 +308,8 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 		}()
 		addr := lis.Addr().(*net.TCPAddr)
 		t.RemoteAddress = fmt.Sprintf("%s:%d", serverDomain, addr.Port)
+		c.tunnels = append(c.tunnels, Tunnel{*t, lis})
 	}
-	c.tunnels = sstm.Tunnels
 	err = msg.WriteMsg(c.ctlConn, msg.TypeSyncTunnel, *sstm)
 	if err != nil {
 		return errors.Wrap(err, "WriteMsg sstm")
@@ -436,40 +318,9 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 	return nil
 }
 
-func (c *Control) ClientHandShake() error {
-	priv, keyMsg := crypto.GenerateKeyExChange()
-	if keyMsg == nil || priv == nil {
-		return fmt.Errorf("GenerateKeyExChange error,key is nil")
-	}
-	var ckem msg.CipherKeyExchange
-	ckem.CipherKey = keyMsg
-	err := msg.WriteMsg(c.ctlConn, msg.TypeClientKeyExchange, ckem)
-	if err != nil {
-		return errors.Wrap(err, "WriteMsg ckem")
-	}
-	_, body, err := msg.ReadMsg(c.ctlConn)
-	if err != nil {
-		return errors.Wrap(err, "read skem")
-	}
-	var preMasterSecret []byte
-	skem := body.(*msg.CipherKeyExchange)
-	preMasterSecret, err = crypto.ProcessKeyExchange(priv, skem.CipherKey)
-	if err != nil {
-		return errors.Wrap(err, "crypto.ProcessKeyExchange")
-	}
-	fmt.Println(preMasterSecret)
-	c.preMasterSecret = preMasterSecret
-
-	_, body, err = msg.ReadMsg(c.ctlConn)
-	if err != nil {
-		return errors.Wrap(err, "read ClientID")
-	}
-	cidm := body.(*msg.ClientIDExchange)
-
-	c.ClientID = cidm.ClientID
-	fmt.Println("client_id:", c.ClientID)
-
-	return nil
+func (c *Control) GenerateClientId() crypto.UUID {
+	c.ClientID = crypto.GenUUID()
+	return c.ClientID
 }
 
 func (c *Control) ServerHandShake() error {
@@ -505,5 +356,45 @@ func (c *Control) ServerHandShake() error {
 	ControlMapLock.Lock()
 	ControlMap[c.ClientID] = c
 	ControlMapLock.Unlock()
+	return nil
+}
+
+func PipeHandShake(conn net.Conn) error {
+	_, body, err := msg.ReadMsg(conn)
+	if err != nil {
+		return errors.Wrap(err, "pipe readMsg")
+	}
+	h := body.(*msg.PipeHandShake)
+	p := pipe.NewPipe(conn, nil)
+	p.ID = h.PipeID
+
+	ControlMapLock.RLock()
+	ctl := ControlMap[h.ClientID]
+	ControlMapLock.RUnlock()
+
+	prf := crypto.NewPrf12()
+	var masterKey []byte = make([]byte, 16)
+	uuid := make([]byte, 16)
+	for i := range uuid {
+		uuid[i] = h.PipeID[i]
+	}
+	fmt.Println("uuid:", uuid)
+	prf(masterKey, ctl.preMasterSecret, []byte(fmt.Sprintf("%d", h.ClientID)), uuid)
+	p.MasterKey = masterKey
+	fmt.Println("masterKey:", masterKey)
+
+	cryptoConn, err := crypto.NewCryptoConn(conn, p.MasterKey)
+	if err != nil {
+		return errors.Wrap(err, "crypto.NewCryptoConn")
+	}
+	smuxConfig := smux.DefaultConfig()
+	smuxConfig.MaxReceiveBuffer = 4194304
+	sess, err := smux.Client(cryptoConn, smuxConfig)
+	if err != nil {
+		return errors.Wrap(err, "smux.Client")
+	}
+	p.SetSess(sess)
+
+	ctl.putPipe(p)
 	return nil
 }

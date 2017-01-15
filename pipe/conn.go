@@ -1,4 +1,4 @@
-package control
+package pipe
 
 import (
 	"Lunnel/kcp"

@@ -2,7 +2,6 @@ package msg
 
 import (
 	"Lunnel/crypto"
-	"Lunnel/proto"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -36,8 +35,13 @@ type PipeHandShake struct {
 	ClientID crypto.UUID
 }
 
+type Tunnel struct {
+	LocalAddress  string
+	RemoteAddress string
+}
+
 type SyncTunnels struct {
-	Tunnels []proto.Tunnel
+	Tunnels []Tunnel
 }
 
 func WriteMsg(w io.Writer, mType MsgType, in interface{}) error {

@@ -1,4 +1,4 @@
-package control
+package pipe
 
 import (
 	"Lunnel/crypto"
@@ -10,21 +10,22 @@ import (
 	"github.com/xtaci/smux"
 )
 
-var maxStreams = 6
-
 func NewPipe(conn net.Conn, ctl *Control) *Pipe {
 	return &Pipe{pipeConn: conn, ctl: ctl}
 }
 
 type Pipe struct {
 	pipeConn  net.Conn
-	isIdle    bool
+	IsIdle    bool
 	ctl       *Control
 	sess      *smux.Session
 	MasterKey []byte
 	ID        crypto.UUID
 }
 
+func (p *Pipe) SetSess(s *smux.Session) {
+	p.sess = s
+}
 func (p *Pipe) StreamsNum() int {
 	return p.sess.NumStreams()
 }
@@ -38,7 +39,11 @@ func (p *Pipe) GeneratePipeID() crypto.UUID {
 }
 
 func (p *Pipe) Close() error {
-	return p.sess.Close()
+	if p.sess == nil {
+		return p.pipeConn.Close()
+	} else {
+		return p.sess.Close()
+	}
 }
 
 func (p *Pipe) ClientHandShake() error {
@@ -62,45 +67,5 @@ func (p *Pipe) ClientHandShake() error {
 	p.MasterKey = masterKey
 	fmt.Println("masterKey:", masterKey)
 
-	return nil
-}
-
-func (p *Pipe) ServerHandShake() error {
-	_, body, err := msg.ReadMsg(p.pipeConn)
-	if err != nil {
-		return errors.Wrap(err, "pipe readMsg")
-	}
-	h := body.(*msg.PipeHandShake)
-	p.ID = h.PipeID
-
-	ControlMapLock.RLock()
-	ctl := ControlMap[h.ClientID]
-	ControlMapLock.RUnlock()
-	p.ctl = ctl
-
-	prf := crypto.NewPrf12()
-	var masterKey []byte = make([]byte, 16)
-	uuid := make([]byte, 16)
-	for i := range uuid {
-		uuid[i] = h.PipeID[i]
-	}
-	fmt.Println("uuid:", uuid)
-	prf(masterKey, ctl.preMasterSecret, []byte(fmt.Sprintf("%d", h.ClientID)), uuid)
-	p.MasterKey = masterKey
-	fmt.Println("masterKey:", masterKey)
-
-	cryptoConn, err := crypto.NewCryptoConn(p.pipeConn, p.MasterKey)
-	if err != nil {
-		return errors.Wrap(err, "crypto.NewCryptoConn")
-	}
-	smuxConfig := smux.DefaultConfig()
-	smuxConfig.MaxReceiveBuffer = 4194304
-	sess, err := smux.Client(cryptoConn, smuxConfig)
-	if err != nil {
-		return errors.Wrap(err, "smux.Client")
-	}
-	p.sess = sess
-
-	p.ctl.putPipe(p)
 	return nil
 }

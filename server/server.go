@@ -1,12 +1,10 @@
 package main
 
 import (
-	"Lunnel/control"
 	"Lunnel/kcp"
 	"crypto/tls"
 	"fmt"
 	"net"
-	"time"
 
 	"github.com/pkg/errors"
 )
@@ -55,7 +53,7 @@ func main() {
 
 func handleControl(conn net.Conn) {
 
-	ctl := control.NewControl(conn, nil)
+	ctl := NewControl(conn)
 	defer ctl.Close()
 
 	err := ctl.ServerHandShake()
@@ -70,9 +68,9 @@ func handleControl(conn net.Conn) {
 }
 
 func handlePipe(conn net.Conn) {
-	p := control.NewPipe(conn, nil)
-	err := p.ServerHandShake()
+	err := PipeHandShake(conn)
 	if err != nil {
+		conn.Close()
 		panic(err)
 	}
 }
