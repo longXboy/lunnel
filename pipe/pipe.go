@@ -2,22 +2,18 @@ package pipe
 
 import (
 	"Lunnel/crypto"
-	"Lunnel/msg"
-	"fmt"
 	"net"
 
-	"github.com/pkg/errors"
 	"github.com/xtaci/smux"
 )
 
-func NewPipe(conn net.Conn, ctl *Control) *Pipe {
-	return &Pipe{pipeConn: conn, ctl: ctl}
+func NewPipe(conn net.Conn) *Pipe {
+	return &Pipe{pipeConn: conn}
 }
 
 type Pipe struct {
 	pipeConn  net.Conn
 	IsIdle    bool
-	ctl       *Control
 	sess      *smux.Session
 	MasterKey []byte
 	ID        crypto.UUID
@@ -44,28 +40,4 @@ func (p *Pipe) Close() error {
 	} else {
 		return p.sess.Close()
 	}
-}
-
-func (p *Pipe) ClientHandShake() error {
-	uuid := p.GeneratePipeID()
-	var uuidm msg.PipeHandShake
-	uuidm.PipeID = uuid
-	uuidm.ClientID = p.ctl.ClientID
-	err := msg.WriteMsg(p.pipeConn, msg.TypePipeHandShake, uuidm)
-	if err != nil {
-		return errors.Wrap(err, "write pipe handshake")
-	}
-	prf := crypto.NewPrf12()
-	var masterKey []byte = make([]byte, 16)
-	uuidmar := make([]byte, 16)
-	for i := range uuidm.PipeID {
-		uuidmar[i] = uuidm.PipeID[i]
-	}
-	fmt.Println("uuid:", uuidmar)
-
-	prf(masterKey, p.ctl.preMasterSecret, []byte(fmt.Sprintf("%d", p.ctl.ClientID)), uuidmar)
-	p.MasterKey = masterKey
-	fmt.Println("masterKey:", masterKey)
-
-	return nil
 }

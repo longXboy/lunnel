@@ -53,6 +53,7 @@ type Tunnel struct {
 type Control struct {
 	ctlConn         net.Conn
 	tunnels         []Tunnel
+	pipeLock        sync.Mutex
 	pipes           []*pipe.Pipe
 	preMasterSecret []byte
 	lastRead        uint64
@@ -62,7 +63,7 @@ type Control struct {
 	dying     chan struct{}
 	toDie     chan struct{}
 	rmPipe    chan *pipe.Pipe
-	rmTunnel  chan *Tunnel
+	addPipe   chan *pipe.Pipe
 	writeChan chan writeReq
 
 	ClientID crypto.UUID
@@ -89,6 +90,12 @@ func (c *Control) moderator() {
 	_ = <-c.toDie
 	close(c.dying)
 	c.ctlConn.Close()
+	for _, t := range c.tunnels {
+		t.lis.Close()
+	}
+	for _, p := range c.pipes {
+		p.Close()
+	}
 }
 
 func (c *Control) getPipe(ch chan *pipe.Pipe) *pipe.Pipe {
@@ -129,13 +136,6 @@ func (c *Control) recvLoop() {
 		case msg.TypePong:
 		case msg.TypePing:
 			c.writeChan <- writeReq{msg.TypePong, nil}
-		case msg.TypePipeReq:
-			var ch chan *pipe.Pipe
-			select {
-			case c.pipeReq <- ch:
-			case _ = <-c.dying:
-				return
-			}
 		}
 	}
 }
@@ -237,6 +237,8 @@ func (c *Control) Serve() {
 			} else {
 				panic("ready pipe's streams num is out of limitaion")
 			}
+		case _ = <-rmPipe:
+
 		case _ = <-c.dying:
 			return
 		}
@@ -280,6 +282,7 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 					defer c.putPipe(p)
 					stream, err := p.GetStream(t.LocalAddress)
 					if err != nil {
+						c.rmPipe <- struct{}{}
 						return
 					}
 					defer stream.Close()
@@ -365,7 +368,7 @@ func PipeHandShake(conn net.Conn) error {
 		return errors.Wrap(err, "pipe readMsg")
 	}
 	h := body.(*msg.PipeHandShake)
-	p := pipe.NewPipe(conn, nil)
+	p := pipe.NewPipe(conn)
 	p.ID = h.PipeID
 
 	ControlMapLock.RLock()
@@ -394,6 +397,9 @@ func PipeHandShake(conn net.Conn) error {
 		return errors.Wrap(err, "smux.Client")
 	}
 	p.SetSess(sess)
+	ctl.pipeLock.Lock()
+	ctl.pipes = append(ctl.pipes, p)
+	ctl.pipeLock.Unlock()
 
 	ctl.putPipe(p)
 	return nil

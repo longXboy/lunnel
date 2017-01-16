@@ -1,8 +1,8 @@
 package main
 
 import (
-	"Lunnel/control"
-	"Lunnel/proto"
+	"Lunnel/kcp"
+	"Lunnel/msg"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -39,8 +39,17 @@ func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 	return &tls.Config{RootCAs: pool}, nil
 }
 
+func CreateConn(addr string, noComp bool) (net.Conn, error) {
+	fmt.Println("open conn:", addr)
+	kcpconn, err := kcp.Dial(addr)
+	if err != nil {
+		return nil, errors.Wrap(err, "kcp dial")
+	}
+	return kcpconn, nil
+}
+
 func main() {
-	conn, err := control.CreateConn("www.longxboy.com:8080", true)
+	conn, err := CreateConn("www.longxboy.com:8080", true)
 	if err != nil {
 		panic(err)
 	}
@@ -52,10 +61,10 @@ func main() {
 	tlsConfig.ServerName = "www.longxboy.com"
 	tlsConn := tls.Client(conn, tlsConfig)
 
-	opt := control.Options{Tunnels: make([]proto.Tunnel, 0)}
-	opt.Tunnels = append(opt.Tunnels, proto.Tunnel{LocalAddress: "127.0.0.1:32768"})
+	opt := Options{Tunnels: make([]msg.Tunnel, 0)}
+	opt.Tunnels = append(opt.Tunnels, msg.Tunnel{LocalAddress: "127.0.0.1:32768"})
 
-	ctl := control.NewControl(tlsConn, &opt)
+	ctl := NewControl(tlsConn, &opt)
 	defer ctl.Close()
 
 	err = ctl.ClientHandShake()
