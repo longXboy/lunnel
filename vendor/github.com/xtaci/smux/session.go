@@ -2,7 +2,6 @@ package smux
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -77,16 +76,15 @@ func newSession(config *Config, conn io.ReadWriteCloser, client bool) *Session {
 }
 
 // OpenStream is used to create a new stream
-func (s *Session) OpenStream(tunnel string) (*Stream, error) {
+func (s *Session) OpenStream() (*Stream, error) {
 	if s.IsClosed() {
 		return nil, errors.New(errBrokenPipe)
 	}
 
 	sid := atomic.AddUint32(&s.nextStreamID, 2)
-	stream := newStream(sid, s.config.MaxFrameSize, s, tunnel)
-	f := newFrame(cmdSYN, sid)
-	f.data = []byte(tunnel)
-	if _, err := s.writeFrame(f); err != nil {
+	stream := newStream(sid, s.config.MaxFrameSize, s)
+
+	if _, err := s.writeFrame(newFrame(cmdSYN, sid)); err != nil {
 		return nil, errors.Wrap(err, "writeFrame")
 	}
 
@@ -231,9 +229,8 @@ func (s *Session) recvLoop() {
 			case cmdSYN:
 				s.streamLock.Lock()
 				if _, ok := s.streams[f.sid]; !ok {
-					stream := newStream(f.sid, s.config.MaxFrameSize, s, string(f.data))
+					stream := newStream(f.sid, s.config.MaxFrameSize, s)
 					s.streams[f.sid] = stream
-					fmt.Println(string(f.data))
 					select {
 					case s.chAccepts <- stream:
 					case <-s.die:
@@ -302,7 +299,6 @@ func (s *Session) sendLoop() {
 			binary.LittleEndian.PutUint16(buf[2:], uint16(len(request.frame.data)))
 			binary.LittleEndian.PutUint32(buf[4:], request.frame.sid)
 			copy(buf[headerSize:], request.frame.data)
-
 			n, err := s.conn.Write(buf[:headerSize+len(request.frame.data)])
 
 			n -= headerSize

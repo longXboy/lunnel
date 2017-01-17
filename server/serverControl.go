@@ -32,7 +32,7 @@ func NewControl(conn net.Conn) *Control {
 		ctlConn:   conn,
 		pipeReq:   make(chan chan *pipe.Pipe),
 		pipeReady: make(chan *pipe.Pipe),
-		dying:     make(chan struct{}),
+		die:       make(chan struct{}),
 		toDie:     make(chan struct{}),
 		writeChan: make(chan writeReq),
 	}
@@ -46,8 +46,14 @@ type writeReq struct {
 }
 
 type Tunnel struct {
-	msg.Tunnel
-	lis net.Listener
+	tunnelInfo msg.Tunnel
+	listener   net.Listener
+}
+
+type pipeNode struct {
+	prev *pipeNode
+	next *pipeNode
+	p    *pipe.Pipe
 }
 
 type Control struct {
@@ -58,15 +64,35 @@ type Control struct {
 	preMasterSecret []byte
 	lastRead        uint64
 
-	pipeReq   chan chan *pipe.Pipe
-	pipeReady chan *pipe.Pipe
-	dying     chan struct{}
+	busyPipes *pipeNode
+	idlePipes *pipeNode
+	pipeAdd   chan *pipe.Pipe
+	streamGet chan *smux.Stream
+
+	die       chan struct{}
 	toDie     chan struct{}
-	rmPipe    chan *pipe.Pipe
-	addPipe   chan *pipe.Pipe
 	writeChan chan writeReq
 
 	ClientID crypto.UUID
+}
+
+func (c *Control) pipeDispatch() {
+	for {
+		select {
+		case p := <-c.pipeAdd:
+			pNode := pipeNode{p: p}
+			if c.idlePipes == nil {
+				c.idlePipes == pNode
+			} else {
+				c.idlePipes.prev = pNode
+				pNode.next = c.idlePipes
+				c.idlePipes = pNode
+			}
+		case _ = <-c.die:
+			return
+
+		}
+	}
 }
 
 func (c *Control) Close() {
@@ -79,7 +105,7 @@ func (c *Control) Close() {
 
 func (c *Control) IsClosed() bool {
 	select {
-	case <-c.dying:
+	case <-c.die:
 		return true
 	default:
 		return false
@@ -88,7 +114,7 @@ func (c *Control) IsClosed() bool {
 
 func (c *Control) moderator() {
 	_ = <-c.toDie
-	close(c.dying)
+	close(c.die)
 	c.ctlConn.Close()
 	for _, t := range c.tunnels {
 		t.lis.Close()
@@ -101,13 +127,13 @@ func (c *Control) moderator() {
 func (c *Control) getPipe(ch chan *pipe.Pipe) *pipe.Pipe {
 	select {
 	case c.pipeReq <- ch:
-	case _ = <-c.dying:
+	case _ = <-c.die:
 		return nil
 	}
 	select {
 	case pipe := <-ch:
 		return pipe
-	case _ = <-c.dying:
+	case _ = <-c.die:
 		return nil
 	}
 }
@@ -115,7 +141,7 @@ func (c *Control) getPipe(ch chan *pipe.Pipe) *pipe.Pipe {
 func (c *Control) putPipe(p *pipe.Pipe) {
 	select {
 	case c.pipeReady <- p:
-	case _ = <-c.dying:
+	case _ = <-c.die:
 		return
 	}
 	return
@@ -160,7 +186,7 @@ func (c *Control) writeLoop() {
 				c.Close()
 				return
 			}
-		case _ = <-c.dying:
+		case _ = <-c.die:
 			return
 		}
 	}
@@ -188,7 +214,7 @@ func (c *Control) Serve() {
 			}
 			select {
 			case c.writeChan <- writeReq{msg.TypePing, nil}:
-			case _ = <-c.dying:
+			case _ = <-c.die:
 				return
 			}
 		case reqCh := <-c.pipeReq:
@@ -197,20 +223,20 @@ func (c *Control) Serve() {
 				if reqWaits.Put(reqCh) {
 					select {
 					case c.writeChan <- writeReq{msg.TypePipeReq, nil}:
-					case _ = <-c.dying:
+					case _ = <-c.die:
 						return
 					}
 				} else {
 					select {
 					case reqCh <- nil:
-					case _ = <-c.dying:
+					case _ = <-c.die:
 						return
 					}
 				}
 			} else {
 				select {
 				case reqCh <- idlePipe:
-				case _ = <-c.dying:
+				case _ = <-c.die:
 					return
 				}
 			}
@@ -228,7 +254,7 @@ func (c *Control) Serve() {
 				} else {
 					select {
 					case reqCh <- ready:
-					case _ = <-c.dying:
+					case _ = <-c.die:
 						return
 					}
 				}
@@ -239,7 +265,7 @@ func (c *Control) Serve() {
 			}
 		case _ = <-rmPipe:
 
-		case _ = <-c.dying:
+		case _ = <-c.die:
 			return
 		}
 	}
@@ -287,7 +313,10 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 					}
 					defer stream.Close()
 					c.putPipe(p)
-
+					err := msg.WriteMsg(stream, msg.TypeTransmissionStart, t)
+					if err != nil {
+						return
+					}
 					p1die := make(chan struct{})
 					p2die := make(chan struct{})
 					go func() {

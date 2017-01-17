@@ -131,6 +131,9 @@ func (c *Control) createPipe() {
 		if c.IsClosed() {
 			return
 		}
+		if mux.IsClosed() {
+			return
+		}
 		stream, err := mux.AcceptStream()
 		if err != nil {
 			panic(err)
@@ -139,8 +142,12 @@ func (c *Control) createPipe() {
 		idx++
 		go func() {
 			defer stream.Close()
+			mType, body, err := msg.ReadMsg(stream)
+			if err != nil {
+				return
+			}
 			fmt.Println("open stream:", idx)
-			conn, err := net.Dial("tcp", stream.Tunnel())
+			conn, err := net.Dial("tcp", body.(*msg.Tunnel).LocalAddress)
 			if err != nil {
 				panic(err)
 			}

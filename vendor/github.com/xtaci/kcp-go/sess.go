@@ -3,6 +3,7 @@ package kcp
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"hash/crc32"
 	"io"
 	"net"
 	"sync"
@@ -10,9 +11,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-
-	"github.com/klauspost/crc32"
-
 	"golang.org/x/net/ipv4"
 )
 
@@ -408,6 +406,8 @@ func (s *UDPSession) outputTask() {
 
 	for {
 		select {
+		// receive from a synchronous channel
+		// buffered channel must be avoided, because of "bufferbloat"
 		case ext := <-s.chUDPOutput:
 			var ecc [][]byte
 			if s.fec != nil {
@@ -478,17 +478,15 @@ func (s *UDPSession) outputTask() {
 			atomic.AddUint64(&DefaultSnmp.OutBytes, uint64(nbytes))
 			xmitBuf.Put(ext)
 		case <-ticker.C: // NAT keep-alive
-			if len(s.chUDPOutput) == 0 {
-				interval := time.Duration(atomic.LoadInt32(&s.keepAliveInterval)) * time.Second
-				if interval > 0 && time.Now().After(lastPing.Add(interval)) {
-					var rnd uint16
-					binary.Read(rand.Reader, binary.LittleEndian, &rnd)
-					sz := int(rnd)%(IKCP_MTU_DEF-s.headerSize-IKCP_OVERHEAD) + s.headerSize + IKCP_OVERHEAD
-					ping := make([]byte, sz) // randomized ping packet
-					io.ReadFull(rand.Reader, ping)
-					s.conn.WriteTo(ping, s.remote)
-					lastPing = time.Now()
-				}
+			interval := time.Duration(atomic.LoadInt32(&s.keepAliveInterval)) * time.Second
+			if interval > 0 && time.Now().After(lastPing.Add(interval)) {
+				var rnd uint16
+				binary.Read(rand.Reader, binary.LittleEndian, &rnd)
+				sz := int(rnd)%(IKCP_MTU_DEF-s.headerSize-IKCP_OVERHEAD) + s.headerSize + IKCP_OVERHEAD
+				ping := make([]byte, sz) // randomized ping packet
+				io.ReadFull(rand.Reader, ping)
+				s.conn.WriteTo(ping, s.remote)
+				lastPing = time.Now()
 			}
 		case <-s.die:
 			return
@@ -548,18 +546,25 @@ func (s *UDPSession) notifyWriteEvent() {
 }
 
 func (s *UDPSession) kcpInput(data []byte) {
+	kcpInErrors := uint64(0)
+	fecErrs := uint64(0)
+	fecRecovered := uint64(0)
+
 	if s.fec != nil {
 		f := s.fec.decode(data)
+		s.mu.Lock()
+		if f.flag == typeData {
+			if ret := s.kcp.Input(data[fecHeaderSizePlus2:], true); ret != 0 {
+				atomic.AddUint64(&DefaultSnmp.KCPInErrors, 1)
+			}
+		}
+
 		if f.flag == typeData || f.flag == typeFEC {
 			if f.flag == typeFEC {
 				atomic.AddUint64(&DefaultSnmp.FECSegs, 1)
 			}
 
 			if recovers := s.fec.input(f); recovers != nil {
-				s.mu.Lock()
-				kcpInErrors := uint64(0)
-				fecErrs := uint64(0)
-				fecRecovered := uint64(0)
 				for _, r := range recovers {
 					if len(r) >= 2 { // must be larger than 2bytes
 						sz := binary.LittleEndian.Uint16(r)
@@ -576,38 +581,43 @@ func (s *UDPSession) kcpInput(data []byte) {
 						fecErrs++
 					}
 				}
-				s.mu.Unlock()
-				atomic.AddUint64(&DefaultSnmp.KCPInErrors, kcpInErrors)
-				atomic.AddUint64(&DefaultSnmp.FECErrs, fecErrs)
-				atomic.AddUint64(&DefaultSnmp.FECRecovered, fecRecovered)
 			}
 		}
-		if f.flag == typeData {
-			s.mu.Lock()
-			if ret := s.kcp.Input(data[fecHeaderSizePlus2:], true); ret != 0 {
-				atomic.AddUint64(&DefaultSnmp.KCPInErrors, 1)
-			}
-			s.mu.Unlock()
+
+		// notify reader
+		if n := s.kcp.PeekSize(); n > 0 {
+			s.notifyReadEvent()
 		}
+		if s.ackNoDelay {
+			s.kcp.flush()
+		}
+		s.mu.Unlock()
 	} else {
 		s.mu.Lock()
 		if ret := s.kcp.Input(data, true); ret != 0 {
 			atomic.AddUint64(&DefaultSnmp.KCPInErrors, 1)
 		}
+		// notify reader
+		if n := s.kcp.PeekSize(); n > 0 {
+			s.notifyReadEvent()
+		}
+		if s.ackNoDelay {
+			s.kcp.flush()
+		}
 		s.mu.Unlock()
 	}
 
-	// notify reader
-	s.mu.Lock()
-	if n := s.kcp.PeekSize(); n > 0 {
-		s.notifyReadEvent()
-	}
-	if s.ackNoDelay {
-		s.kcp.flush()
-	}
-	s.mu.Unlock()
 	atomic.AddUint64(&DefaultSnmp.InSegs, 1)
 	atomic.AddUint64(&DefaultSnmp.InBytes, uint64(len(data)))
+	if kcpInErrors > 0 {
+		atomic.AddUint64(&DefaultSnmp.KCPInErrors, kcpInErrors)
+	}
+	if fecErrs > 0 {
+		atomic.AddUint64(&DefaultSnmp.FECErrs, fecErrs)
+	}
+	if fecRecovered > 0 {
+		atomic.AddUint64(&DefaultSnmp.FECRecovered, fecRecovered)
+	}
 }
 
 func (s *UDPSession) receiver(ch chan []byte) {

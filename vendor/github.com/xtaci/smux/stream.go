@@ -11,7 +11,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Stream implements io.ReadWriteCloser
+// Stream implements net.Conn
 type Stream struct {
 	id            uint32
 	rstflag       int32
@@ -24,18 +24,16 @@ type Stream struct {
 	dieLock       sync.Mutex
 	readDeadline  atomic.Value
 	writeDeadline atomic.Value
-	tunnel        string
 }
 
 // newStream initiates a Stream struct
-func newStream(id uint32, frameSize int, sess *Session, tunnel string) *Stream {
+func newStream(id uint32, frameSize int, sess *Session) *Stream {
 	s := new(Stream)
 	s.id = id
 	s.chReadEvent = make(chan struct{}, 1)
 	s.frameSize = frameSize
 	s.sess = sess
 	s.die = make(chan struct{})
-	s.tunnel = tunnel
 	return s
 }
 
@@ -44,12 +42,7 @@ func (s *Stream) ID() uint32 {
 	return s.id
 }
 
-// Tunnel returns Tunnel's local proxy address
-func (s *Stream) Tunnel() string {
-	return s.tunnel
-}
-
-// Read implements io.ReadWriteCloser
+// Read implements net.Conn
 func (s *Stream) Read(b []byte) (n int, err error) {
 	var deadline <-chan time.Time
 	if d, ok := s.readDeadline.Load().(time.Time); ok && !d.IsZero() {
@@ -89,7 +82,7 @@ READ:
 	}
 }
 
-// Write implements io.ReadWriteCloser
+// Write implements net.Conn
 func (s *Stream) Write(b []byte) (n int, err error) {
 	var deadline <-chan time.Time
 	if d, ok := s.writeDeadline.Load().(time.Time); ok && !d.IsZero() {
@@ -135,7 +128,7 @@ func (s *Stream) Write(b []byte) (n int, err error) {
 	return sent, nil
 }
 
-// Close implements io.ReadWriteCloser
+// Close implements net.Conn
 func (s *Stream) Close() error {
 	s.dieLock.Lock()
 

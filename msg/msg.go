@@ -16,10 +16,11 @@ const (
 	TypeServerKeyExchange MsgType = 2
 	TypeClientID          MsgType = 3
 	TypePipeHandShake     MsgType = 4
-	TypeSyncTunnel        MsgType = 5
-	TypePipeReq           MsgType = 6
-	TypePing              MsgType = 7
-	TypePong              MsgType = 8
+	TypeSyncTunnels       MsgType = 5
+	TypeTransmissionStart MsgType = 6
+	TypePipeReq           MsgType = 7
+	TypePing              MsgType = 8
+	TypePong              MsgType = 9
 )
 
 type CipherKeyExchange struct {
@@ -85,10 +86,12 @@ func ReadMsg(r io.Reader) (MsgType, interface{}, error) {
 		out = new(PipeHandShake)
 	} else if MsgType(header[0]) == TypeClientID {
 		out = new(ClientIDExchange)
-	} else if MsgType(header[0]) == TypeSyncTunnel {
+	} else if MsgType(header[0]) == TypeSyncTunnels {
 		out = new(SyncTunnels)
 	} else if MsgType(header[0]) == TypePipeReq || MsgType(header[0]) == TypePing || MsgType(header[0]) == TypePong {
 		return MsgType(header[0]), nil, nil
+	} else if MsgType(header[0]) == TypeTransmissionStart {
+		out = new(Tunnel)
 	} else {
 		return 0, nil, fmt.Errorf("invalid msg type %d", header[0])
 	}
