@@ -4,7 +4,6 @@ import (
 	"Lunnel/crypto"
 	"Lunnel/msg"
 	"Lunnel/pipe"
-	"Lunnel/util"
 	"fmt"
 	"io"
 	"net"
@@ -30,11 +29,9 @@ var ControlMap = make(map[crypto.UUID]*Control)
 func NewControl(conn net.Conn) *Control {
 	ctl := &Control{
 		ctlConn:   conn,
-		pipeReq:   make(chan chan *pipe.Pipe),
-		pipeReady: make(chan *pipe.Pipe),
 		die:       make(chan struct{}),
 		toDie:     make(chan struct{}),
-		writeChan: make(chan writeReq),
+		writeChan: make(chan writeReq, 128),
 	}
 
 	return ctl
@@ -51,9 +48,9 @@ type Tunnel struct {
 }
 
 type pipeNode struct {
-	prev *pipeNode
-	next *pipeNode
-	p    *pipe.Pipe
+	prev  *pipeNode
+	next  *pipeNode
+	value *pipe.Pipe
 }
 
 type Control struct {
@@ -65,9 +62,10 @@ type Control struct {
 	lastRead        uint64
 
 	busyPipes *pipeNode
+	idleCount int
 	idlePipes *pipeNode
 	pipeAdd   chan *pipe.Pipe
-	streamGet chan *smux.Stream
+	pipeGet   chan *pipe.Pipe
 
 	die       chan struct{}
 	toDie     chan struct{}
@@ -76,21 +74,95 @@ type Control struct {
 	ClientID crypto.UUID
 }
 
+func addPipe(first **pipeNode, pipe *pipe.Pipe) {
+	pNode := &pipeNode{value: pipe}
+	if *first != nil {
+		(*first).prev = pNode
+		pNode.next = *first
+	}
+	*first = pNode
+}
+
+func deletePipeNode(pNode *pipeNode) {
+	if pNode.prev != nil {
+		if pNode.next != nil {
+			pNode.prev.next = pNode.next
+		}
+	}
+	if pNode.next != nil {
+		if pNode.prev != nil {
+			pNode.next.prev = pNode.prev
+		}
+	}
+}
+
+func (c *Control) putPipe(p *pipe.Pipe) {
+	if p.IsClosed() {
+		return
+	}
+	select {
+	case c.pipeAdd <- p:
+	case _ = <-c.die:
+		p.Close()
+	}
+	return
+}
+
+func (c *Control) getPipe() *pipe.Pipe {
+	select {
+	case p := <-c.pipeGet:
+		return p
+	case _ = <-c.die:
+		return nil
+	}
+}
+
 func (c *Control) pipeDispatch() {
+	var available *pipe.Pipe
+
 	for {
-		select {
-		case p := <-c.pipeAdd:
-			pNode := pipeNode{p: p}
-			if c.idlePipes == nil {
-				c.idlePipes == pNode
+		if available == nil {
+			pNode := c.idlePipes
+			for {
+				if pNode == nil {
+					break
+				}
+				if !pNode.value.IsClosed() {
+					deletePipeNode(pNode)
+					break
+				}
+				pNode = pNode.next
+			}
+			if pNode == nil {
+				for {
+					select {
+					case p := <-c.pipeAdd:
+						if p.StreamsNum() < maxStreams {
+							available = p
+							break
+						} else {
+							addPipe(&c.busyPipes, p)
+						}
+					case _ = <-c.die:
+						return
+					}
+				}
 			} else {
-				c.idlePipes.prev = pNode
-				pNode.next = c.idlePipes
-				c.idlePipes = pNode
+				available = pNode.value
+			}
+		}
+		select {
+		case c.pipeGet <- available:
+			available = nil
+		case p := <-c.pipeAdd:
+			if p.StreamsNum() < maxStreams {
+				addPipe(&c.idlePipes, p)
+				c.idleCount++
+			} else {
+				addPipe(&c.busyPipes, p)
 			}
 		case _ = <-c.die:
 			return
-
 		}
 	}
 }
@@ -117,34 +189,11 @@ func (c *Control) moderator() {
 	close(c.die)
 	c.ctlConn.Close()
 	for _, t := range c.tunnels {
-		t.lis.Close()
+		t.listener.Close()
 	}
 	for _, p := range c.pipes {
 		p.Close()
 	}
-}
-
-func (c *Control) getPipe(ch chan *pipe.Pipe) *pipe.Pipe {
-	select {
-	case c.pipeReq <- ch:
-	case _ = <-c.die:
-		return nil
-	}
-	select {
-	case pipe := <-ch:
-		return pipe
-	case _ = <-c.die:
-		return nil
-	}
-}
-
-func (c *Control) putPipe(p *pipe.Pipe) {
-	select {
-	case c.pipeReady <- p:
-	case _ = <-c.die:
-		return
-	}
-	return
 }
 
 func (c *Control) recvLoop() {
@@ -198,10 +247,6 @@ func (c *Control) Serve() {
 	go c.recvLoop()
 	go c.writeLoop()
 
-	//if pipeReq wait num is out of waitQueue size,we drop the req
-	reqWaits := util.NewLoopQueue(128)
-	idles := util.NewLoopQueue(maxIdlePipes)
-
 	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 
@@ -217,54 +262,6 @@ func (c *Control) Serve() {
 			case _ = <-c.die:
 				return
 			}
-		case reqCh := <-c.pipeReq:
-			idlePipe := idles.Get().(*pipe.Pipe)
-			if idlePipe == nil {
-				if reqWaits.Put(reqCh) {
-					select {
-					case c.writeChan <- writeReq{msg.TypePipeReq, nil}:
-					case _ = <-c.die:
-						return
-					}
-				} else {
-					select {
-					case reqCh <- nil:
-					case _ = <-c.die:
-						return
-					}
-				}
-			} else {
-				select {
-				case reqCh <- idlePipe:
-				case _ = <-c.die:
-					return
-				}
-			}
-		case ready := <-c.pipeReady:
-			if ready.StreamsNum() < maxStreams {
-				reqCh := reqWaits.Get().(chan *pipe.Pipe)
-				if reqCh == nil {
-					if !ready.IsIdle {
-						if !idles.Put(ready) {
-							ready.Close()
-						} else {
-							ready.IsIdle = true
-						}
-					}
-				} else {
-					select {
-					case reqCh <- ready:
-					case _ = <-c.die:
-						return
-					}
-				}
-			} else if ready.StreamsNum() == maxStreams {
-				ready.IsIdle = false
-			} else {
-				panic("ready pipe's streams num is out of limitaion")
-			}
-		case _ = <-rmPipe:
-
 		case _ = <-c.die:
 			return
 		}
@@ -286,8 +283,6 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 		}
 		go func() {
 			idx := 0
-			pipeChan := make(chan *pipe.Pipe)
-			defer close(pipeChan)
 			for {
 				if c.IsClosed() {
 					return
@@ -300,23 +295,18 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 				go func() {
 					defer conn.Close()
 					fmt.Println("open stream:", idx)
-					p := c.getPipe(pipeChan)
+					p := c.getPipe()
 					if p == nil {
 						fmt.Println("failed to get pipes!")
 						return
 					}
-					defer c.putPipe(p)
 					stream, err := p.GetStream(t.LocalAddress)
 					if err != nil {
-						c.rmPipe <- struct{}{}
+						c.putPipe(p)
 						return
 					}
 					defer stream.Close()
 					c.putPipe(p)
-					err := msg.WriteMsg(stream, msg.TypeTransmissionStart, t)
-					if err != nil {
-						return
-					}
 					p1die := make(chan struct{})
 					p2die := make(chan struct{})
 					go func() {
@@ -342,7 +332,7 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 		t.RemoteAddress = fmt.Sprintf("%s:%d", serverDomain, addr.Port)
 		c.tunnels = append(c.tunnels, Tunnel{*t, lis})
 	}
-	err = msg.WriteMsg(c.ctlConn, msg.TypeSyncTunnel, *sstm)
+	err = msg.WriteMsg(c.ctlConn, msg.TypeSyncTunnels, *sstm)
 	if err != nil {
 		return errors.Wrap(err, "WriteMsg sstm")
 	}
