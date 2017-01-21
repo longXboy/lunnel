@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -45,20 +46,29 @@ type SyncTunnels struct {
 }
 
 func WriteMsg(w io.Writer, mType MsgType, in interface{}) error {
-	body, err := json.Marshal(in)
-	if err != nil {
-		return errors.Wrapf(err, "json marshal %d", mType)
-	}
-	length := len(body)
-	if length > 16777215 {
-		return fmt.Errorf("write message out of size limit(16777215)")
+	var length int
+	var body []byte
+	var err error
+	if in == nil {
+		length = 0
+	} else {
+		body, err = json.Marshal(in)
+		if err != nil {
+			return errors.Wrapf(err, "json marshal %d", mType)
+		}
+		length = len(body)
+		if length > 16777215 {
+			return fmt.Errorf("write message out of size limit(16777215)")
+		}
 	}
 	x := make([]byte, length+4)
 	x[0] = uint8(mType)
 	x[1] = uint8(length >> 16)
 	x[2] = uint8(length >> 8)
 	x[3] = uint8(length)
-	copy(x[4:], body)
+	if body != nil {
+		copy(x[4:], body)
+	}
 	_, err = w.Write(x)
 	if err != nil {
 		return errors.Wrap(err, "write msg")
@@ -70,6 +80,7 @@ func ReadMsg(r io.Reader) (MsgType, interface{}, error) {
 	var header []byte = make([]byte, 4)
 	err := readInSize(r, header)
 	if err != nil {
+		fmt.Println(time.Now().UnixNano())
 		return 0, nil, errors.Wrap(err, "msg readInSize header")
 	}
 	length := int(header[1])<<16 | int(header[2])<<8 | int(header[3])

@@ -35,10 +35,17 @@ func (p *Pipe) GeneratePipeID() crypto.UUID {
 }
 
 func (p *Pipe) IsClosed() bool {
-	return p.sess.IsClosed()
+	if p.sess != nil {
+		return p.sess.IsClosed()
+	} else {
+		return false
+	}
 }
 
 func (p *Pipe) Close() error {
-
-	return p.sess.Close()
+	if p.sess != nil {
+		return p.sess.Close()
+	} else {
+		return p.pipeConn.Close()
+	}
 }

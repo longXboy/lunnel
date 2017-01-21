@@ -21,7 +21,7 @@ var maxIdlePipes int = 4
 var maxStreams = 6
 
 var pingInterval time.Duration = time.Second * 8
-var pingTimeout time.Duration = time.Second * 21
+var pingTimeout time.Duration = time.Second * 300
 
 var ControlMapLock sync.RWMutex
 var ControlMap = make(map[crypto.UUID]*Control)
@@ -29,6 +29,8 @@ var ControlMap = make(map[crypto.UUID]*Control)
 func NewControl(conn net.Conn) *Control {
 	ctl := &Control{
 		ctlConn:   conn,
+		pipeGet:   make(chan *pipe.Pipe),
+		pipeAdd:   make(chan *pipe.Pipe),
 		die:       make(chan struct{}),
 		toDie:     make(chan struct{}),
 		writeChan: make(chan writeReq, 128),
@@ -56,8 +58,6 @@ type pipeNode struct {
 type Control struct {
 	ctlConn         net.Conn
 	tunnels         []Tunnel
-	pipeLock        sync.Mutex
-	pipes           []*pipe.Pipe
 	preMasterSecret []byte
 	lastRead        uint64
 
@@ -83,7 +83,7 @@ func addPipe(first **pipeNode, pipe *pipe.Pipe) {
 	*first = pNode
 }
 
-func deletePipeNode(pNode *pipeNode) {
+func popPipeNode(pNode *pipeNode) (next *pipeNode) {
 	if pNode.prev != nil {
 		if pNode.next != nil {
 			pNode.prev.next = pNode.next
@@ -94,17 +94,18 @@ func deletePipeNode(pNode *pipeNode) {
 			pNode.next.prev = pNode.prev
 		}
 	}
+	next = pNode.next
+	return
 }
 
 func (c *Control) putPipe(p *pipe.Pipe) {
-	if p.IsClosed() {
-		return
-	}
 	select {
 	case c.pipeAdd <- p:
-	case _ = <-c.die:
+	case <-c.die:
 		p.Close()
+		return
 	}
+	fmt.Println("put pipe:", p)
 	return
 }
 
@@ -112,62 +113,130 @@ func (c *Control) getPipe() *pipe.Pipe {
 	select {
 	case p := <-c.pipeGet:
 		return p
-	case _ = <-c.die:
+	case <-c.die:
 		return nil
 	}
 }
 
-func (c *Control) pipeDispatch() {
-	var available *pipe.Pipe
-
+func (c *Control) clean() {
+	busy := c.busyPipes
 	for {
-		if available == nil {
-			pNode := c.idlePipes
-			for {
-				if pNode == nil {
-					break
-				}
-				if !pNode.value.IsClosed() {
-					deletePipeNode(pNode)
-					break
-				}
-				pNode = pNode.next
-			}
-			if pNode == nil {
-				for {
-					select {
-					case p := <-c.pipeAdd:
-						if p.StreamsNum() < maxStreams {
-							available = p
-							break
-						} else {
-							addPipe(&c.busyPipes, p)
-						}
-					case _ = <-c.die:
-						return
-					}
-				}
-			} else {
-				available = pNode.value
+		if busy == nil {
+			break
+		}
+		if busy.value.IsClosed() {
+			busy = popPipeNode(busy)
+		} else {
+			if busy.value.StreamsNum() < maxStreams {
+				busy = popPipeNode(busy)
+				addPipe(&c.idlePipes, busy.value)
+				c.idleCount++
 			}
 		}
+	}
+	idle := c.idlePipes
+	for {
+		if idle == nil {
+			return
+		}
+		if idle.value.IsClosed() {
+			idle = popPipeNode(idle)
+			c.idleCount--
+		} else if idle.value.StreamsNum() == 0 && c.idleCount >= maxIdlePipes {
+			idle = popPipeNode(idle)
+			c.idleCount--
+		} else {
+			idle = idle.next
+		}
+	}
+	return
+
+}
+func (c *Control) getIdleFast() (idle *pipeNode) {
+	idle = c.idlePipes
+	for {
+		if idle == nil {
+			return
+		}
+		if idle.value.IsClosed() {
+			idle = popPipeNode(idle)
+			c.idleCount--
+		} else {
+			popPipeNode(idle)
+			c.idleCount--
+			return
+		}
+	}
+	return
+}
+
+func (c *Control) pipeManage() {
+	var available *pipe.Pipe
+	ticker := time.NewTicker(time.Second * 3)
+	defer ticker.Stop()
+	for {
+		if available == nil || available.IsClosed() {
+			available = nil
+			idle := c.getIdleFast()
+			if idle == nil {
+				c.clean()
+				idle := c.getIdleFast()
+				c.writeChan <- writeReq{msg.TypePipeReq, nil}
+				if idle == nil {
+					for {
+						select {
+						case <-ticker.C:
+							c.clean()
+							idle := c.getIdleFast()
+							if idle != nil {
+								available = idle.value
+								goto Available
+							}
+						case p := <-c.pipeAdd:
+							if !p.IsClosed() {
+								if p.StreamsNum() < maxStreams {
+									available = p
+									goto Available
+								} else {
+									addPipe(&c.busyPipes, p)
+								}
+							}
+						case _ = <-c.die:
+							return
+						}
+					}
+				} else {
+					available = idle.value
+				}
+			} else {
+				available = idle.value
+			}
+		}
+	Available:
+		fmt.Println("aviable:", available)
 		select {
+		case <-ticker.C:
+			c.clean()
 		case c.pipeGet <- available:
 			available = nil
 		case p := <-c.pipeAdd:
-			if p.StreamsNum() < maxStreams {
-				addPipe(&c.idlePipes, p)
-				c.idleCount++
-			} else {
-				addPipe(&c.busyPipes, p)
+			if !p.IsClosed() {
+				if p.StreamsNum() < maxStreams {
+					addPipe(&c.idlePipes, p)
+					c.idleCount++
+				} else {
+					addPipe(&c.busyPipes, p)
+				}
 			}
-		case _ = <-c.die:
+		case <-c.die:
 			return
 		}
 	}
 }
 
 func (c *Control) Close() {
+	panic("haha")
+	fmt.Println(time.Now().UnixNano())
 	select {
 	case c.toDie <- struct{}{}:
 	default:
@@ -186,26 +255,47 @@ func (c *Control) IsClosed() bool {
 
 func (c *Control) moderator() {
 	_ = <-c.toDie
+	fmt.Println("to die")
 	close(c.die)
-	c.ctlConn.Close()
 	for _, t := range c.tunnels {
 		t.listener.Close()
 	}
-	for _, p := range c.pipes {
-		p.Close()
+	idle := c.idlePipes
+	for {
+		if idle == nil {
+			break
+		}
+		if !idle.value.IsClosed() {
+			idle.value.Close()
+		}
+		idle = popPipeNode(idle)
 	}
+	busy := c.busyPipes
+	for {
+		if busy == nil {
+			break
+		}
+		if !busy.value.IsClosed() {
+			busy.value.Close()
+		}
+		busy = popPipeNode(busy)
+	}
+	c.ctlConn.Close()
 }
 
 func (c *Control) recvLoop() {
+	atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 	for {
 		if c.IsClosed() {
 			return
 		}
 		mType, _, err := msg.ReadMsg(c.ctlConn)
+		fmt.Println("read:", mType, err)
 		if err != nil {
 			c.Close()
 			return
 		}
+
 		atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 		switch mType {
 		case msg.TypePong:
@@ -225,17 +315,18 @@ func (c *Control) writeLoop() {
 		case msgBody := <-c.writeChan:
 			if msgBody.mType == msg.TypePing || msgBody.mType == msg.TypePong {
 				if time.Now().Before(lastWrite.Add(pingInterval / 2)) {
-					continue
+					//continue
 				}
 			}
-
+			fmt.Println("write:", msgBody.mType)
 			lastWrite = time.Now()
 			err := msg.WriteMsg(c.ctlConn, msgBody.mType, msgBody.body)
 			if err != nil {
+				fmt.Println("write error:", err.Error())
 				c.Close()
 				return
 			}
-		case _ = <-c.die:
+		case <-c.die:
 			return
 		}
 	}
@@ -246,23 +337,24 @@ func (c *Control) Serve() {
 	go c.moderator()
 	go c.recvLoop()
 	go c.writeLoop()
+	go c.pipeManage()
 
 	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case _ = <-ticker.C:
+		case <-ticker.C:
 			if (uint64(time.Now().UnixNano()) - atomic.LoadUint64(&c.lastRead)) > uint64(pingTimeout) {
 				c.Close()
 				return
 			}
 			select {
 			case c.writeChan <- writeReq{msg.TypePing, nil}:
-			case _ = <-c.die:
+			case <-c.die:
 				return
 			}
-		case _ = <-c.die:
+		case <-c.die:
 			return
 		}
 	}
@@ -416,9 +508,6 @@ func PipeHandShake(conn net.Conn) error {
 		return errors.Wrap(err, "smux.Client")
 	}
 	p.SetSess(sess)
-	ctl.pipeLock.Lock()
-	ctl.pipes = append(ctl.pipes, p)
-	ctl.pipeLock.Unlock()
 
 	ctl.putPipe(p)
 	return nil
