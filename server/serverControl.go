@@ -3,7 +3,6 @@ package main
 import (
 	"Lunnel/crypto"
 	"Lunnel/msg"
-	"Lunnel/pipe"
 	"fmt"
 	"io"
 	"net"
@@ -17,11 +16,11 @@ import (
 
 var minPipes int = 2
 var maxPipes int = 16
-var maxIdlePipes int = 4
-var maxStreams = 6
+var maxIdlePipes int = 3
+var maxStreams int = 4
 
 var pingInterval time.Duration = time.Second * 8
-var pingTimeout time.Duration = time.Second * 300
+var pingTimeout time.Duration = time.Second * 13
 
 var ControlMapLock sync.RWMutex
 var ControlMap = make(map[crypto.UUID]*Control)
@@ -29,8 +28,8 @@ var ControlMap = make(map[crypto.UUID]*Control)
 func NewControl(conn net.Conn) *Control {
 	ctl := &Control{
 		ctlConn:   conn,
-		pipeGet:   make(chan *pipe.Pipe),
-		pipeAdd:   make(chan *pipe.Pipe),
+		pipeGet:   make(chan *smux.Session),
+		pipeAdd:   make(chan *smux.Session),
 		die:       make(chan struct{}),
 		toDie:     make(chan struct{}),
 		writeChan: make(chan writeReq, 128),
@@ -50,9 +49,9 @@ type Tunnel struct {
 }
 
 type pipeNode struct {
-	prev  *pipeNode
-	next  *pipeNode
-	value *pipe.Pipe
+	prev *pipeNode
+	next *pipeNode
+	pipe *smux.Session
 }
 
 type Control struct {
@@ -64,8 +63,8 @@ type Control struct {
 	busyPipes *pipeNode
 	idleCount int
 	idlePipes *pipeNode
-	pipeAdd   chan *pipe.Pipe
-	pipeGet   chan *pipe.Pipe
+	pipeAdd   chan *smux.Session
+	pipeGet   chan *smux.Session
 
 	die       chan struct{}
 	toDie     chan struct{}
@@ -74,42 +73,61 @@ type Control struct {
 	ClientID crypto.UUID
 }
 
-func addPipe(first **pipeNode, pipe *pipe.Pipe) {
-	pNode := &pipeNode{value: pipe}
-	if *first != nil {
-		(*first).prev = pNode
-		pNode.next = *first
+func (c *Control) addIdlePipe(pipe *smux.Session) {
+	pNode := &pipeNode{pipe: pipe}
+	if c.idlePipes != nil {
+		c.idlePipes.prev = pNode
+		pNode.next = c.idlePipes
 	}
-	*first = pNode
+	c.idlePipes = pNode
+	c.idleCount++
 }
 
-func popPipeNode(pNode *pipeNode) (next *pipeNode) {
-	if pNode.prev != nil {
-		if pNode.next != nil {
-			pNode.prev.next = pNode.next
-		}
+func (c *Control) addBusyPipe(pipe *smux.Session) {
+	pNode := &pipeNode{pipe: pipe}
+	if c.busyPipes != nil {
+		c.busyPipes.prev = pNode
+		pNode.next = c.busyPipes
 	}
-	if pNode.next != nil {
-		if pNode.prev != nil {
+	c.busyPipes = pNode
+	println("add busy:", pipe)
+}
+
+func (c *Control) removeIdleNode(pNode *pipeNode) {
+	if pNode.prev == nil {
+		c.idlePipes = pNode.next
+	} else {
+		pNode.prev.next = pNode.next
+		if pNode.next != nil {
 			pNode.next.prev = pNode.prev
 		}
 	}
-	next = pNode.next
-	return
+	c.idleCount--
 }
 
-func (c *Control) putPipe(p *pipe.Pipe) {
+func (c *Control) removeBusyNode(pNode *pipeNode) {
+	if pNode.prev == nil {
+		c.busyPipes = pNode.next
+	} else {
+		pNode.prev.next = pNode.next
+		if pNode.next != nil {
+			pNode.next.prev = pNode.prev
+		}
+	}
+	println("remove busy:", pNode.pipe)
+}
+
+func (c *Control) putPipe(p *smux.Session) {
 	select {
 	case c.pipeAdd <- p:
 	case <-c.die:
 		p.Close()
 		return
 	}
-	fmt.Println("put pipe:", p)
 	return
 }
 
-func (c *Control) getPipe() *pipe.Pipe {
+func (c *Control) getPipe() *smux.Session {
 	select {
 	case p := <-c.pipeGet:
 		return p
@@ -124,30 +142,27 @@ func (c *Control) clean() {
 		if busy == nil {
 			break
 		}
-		if busy.value.IsClosed() {
-			busy = popPipeNode(busy)
-		} else {
-			if busy.value.StreamsNum() < maxStreams {
-				busy = popPipeNode(busy)
-				addPipe(&c.idlePipes, busy.value)
-				c.idleCount++
-			}
+		if busy.pipe.IsClosed() {
+			c.removeBusyNode(busy)
+		} else if busy.pipe.NumStreams() < maxStreams {
+			c.removeBusyNode(busy)
+			c.addIdlePipe(busy.pipe)
 		}
+		busy = busy.next
 	}
 	idle := c.idlePipes
 	for {
 		if idle == nil {
 			return
 		}
-		if idle.value.IsClosed() {
-			idle = popPipeNode(idle)
-			c.idleCount--
-		} else if idle.value.StreamsNum() == 0 && c.idleCount >= maxIdlePipes {
-			idle = popPipeNode(idle)
-			c.idleCount--
-		} else {
-			idle = idle.next
+		if idle.pipe.IsClosed() {
+			c.removeIdleNode(idle)
+		} else if idle.pipe.NumStreams() == 0 && c.idleCount > maxIdlePipes {
+			fmt.Println("closing pipe!!!count:", c.idleCount)
+			c.removeIdleNode(idle)
+			idle.pipe.Close()
 		}
+		idle = idle.next
 	}
 	return
 
@@ -158,21 +173,22 @@ func (c *Control) getIdleFast() (idle *pipeNode) {
 		if idle == nil {
 			return
 		}
-		if idle.value.IsClosed() {
-			idle = popPipeNode(idle)
-			c.idleCount--
+		if idle.pipe.IsClosed() {
+			c.removeIdleNode(idle)
+			idle = idle.next
 		} else {
-			popPipeNode(idle)
-			c.idleCount--
+			c.removeIdleNode(idle)
 			return
 		}
 	}
 	return
 }
 
+var cleanInterval time.Duration = time.Second * 5
+
 func (c *Control) pipeManage() {
-	var available *pipe.Pipe
-	ticker := time.NewTicker(time.Second * 3)
+	var available *smux.Session
+	ticker := time.NewTicker(cleanInterval)
 	defer ticker.Stop()
 	for {
 		if available == nil || available.IsClosed() {
@@ -189,16 +205,16 @@ func (c *Control) pipeManage() {
 							c.clean()
 							idle := c.getIdleFast()
 							if idle != nil {
-								available = idle.value
+								available = idle.pipe
 								goto Available
 							}
 						case p := <-c.pipeAdd:
 							if !p.IsClosed() {
-								if p.StreamsNum() < maxStreams {
+								if p.NumStreams() < maxStreams {
 									available = p
 									goto Available
 								} else {
-									addPipe(&c.busyPipes, p)
+									c.addBusyPipe(p)
 								}
 							}
 						case _ = <-c.die:
@@ -206,14 +222,13 @@ func (c *Control) pipeManage() {
 						}
 					}
 				} else {
-					available = idle.value
+					available = idle.pipe
 				}
 			} else {
-				available = idle.value
+				available = idle.pipe
 			}
 		}
 	Available:
-		fmt.Println("aviable:", available)
 		select {
 		case <-ticker.C:
 			c.clean()
@@ -221,11 +236,10 @@ func (c *Control) pipeManage() {
 			available = nil
 		case p := <-c.pipeAdd:
 			if !p.IsClosed() {
-				if p.StreamsNum() < maxStreams {
-					addPipe(&c.idlePipes, p)
-					c.idleCount++
+				if p.NumStreams() < maxStreams {
+					c.addIdlePipe(p)
 				} else {
-					addPipe(&c.busyPipes, p)
+					c.addBusyPipe(p)
 				}
 			}
 		case <-c.die:
@@ -235,8 +249,7 @@ func (c *Control) pipeManage() {
 }
 
 func (c *Control) Close() {
-	panic("haha")
-	fmt.Println(time.Now().UnixNano())
+	fmt.Println("control close")
 	select {
 	case c.toDie <- struct{}{}:
 	default:
@@ -255,7 +268,7 @@ func (c *Control) IsClosed() bool {
 
 func (c *Control) moderator() {
 	_ = <-c.toDie
-	fmt.Println("to die")
+	fmt.Println("!!!!to die!!!!!!!")
 	close(c.die)
 	for _, t := range c.tunnels {
 		t.listener.Close()
@@ -265,20 +278,20 @@ func (c *Control) moderator() {
 		if idle == nil {
 			break
 		}
-		if !idle.value.IsClosed() {
-			idle.value.Close()
+		if !idle.pipe.IsClosed() {
+			idle.pipe.Close()
 		}
-		idle = popPipeNode(idle)
+		c.removeIdleNode(idle)
 	}
 	busy := c.busyPipes
 	for {
 		if busy == nil {
 			break
 		}
-		if !busy.value.IsClosed() {
-			busy.value.Close()
+		if !busy.pipe.IsClosed() {
+			busy.pipe.Close()
 		}
-		busy = popPipeNode(busy)
+		c.removeBusyNode(busy)
 	}
 	c.ctlConn.Close()
 }
@@ -290,7 +303,6 @@ func (c *Control) recvLoop() {
 			return
 		}
 		mType, _, err := msg.ReadMsg(c.ctlConn)
-		fmt.Println("read:", mType, err)
 		if err != nil {
 			c.Close()
 			return
@@ -307,6 +319,7 @@ func (c *Control) recvLoop() {
 
 func (c *Control) writeLoop() {
 	lastWrite := time.Now()
+	idx := 0
 	for {
 		if c.IsClosed() {
 			return
@@ -315,10 +328,13 @@ func (c *Control) writeLoop() {
 		case msgBody := <-c.writeChan:
 			if msgBody.mType == msg.TypePing || msgBody.mType == msg.TypePong {
 				if time.Now().Before(lastWrite.Add(pingInterval / 2)) {
-					//continue
+					continue
 				}
 			}
-			fmt.Println("write:", msgBody.mType)
+			if msgBody.mType == msg.TypePipeReq {
+				idx++
+				fmt.Println("req pipe:", idx)
+			}
 			lastWrite = time.Now()
 			err := msg.WriteMsg(c.ctlConn, msgBody.mType, msgBody.body)
 			if err != nil {
@@ -374,7 +390,6 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 			return errors.Wrap(err, "binding TCP listener")
 		}
 		go func() {
-			idx := 0
 			for {
 				if c.IsClosed() {
 					return
@@ -383,16 +398,14 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 				if err != nil {
 					return
 				}
-				idx++
 				go func() {
 					defer conn.Close()
-					fmt.Println("open stream:", idx)
 					p := c.getPipe()
 					if p == nil {
 						fmt.Println("failed to get pipes!")
 						return
 					}
-					stream, err := p.GetStream(t.LocalAddress)
+					stream, err := p.OpenStream(t.LocalAddress)
 					if err != nil {
 						c.putPipe(p)
 						return
@@ -404,18 +417,15 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 					go func() {
 						io.Copy(stream, conn)
 						close(p1die)
-						fmt.Println("src copy done:", idx)
 					}()
 					go func() {
 						io.Copy(conn, stream)
 						close(p2die)
-						fmt.Println("dst copy done:", idx)
 					}()
 					select {
 					case <-p1die:
 					case <-p2die:
 					}
-					fmt.Println("close Stream:", idx)
 					return
 				}()
 			}
@@ -478,37 +488,27 @@ func PipeHandShake(conn net.Conn) error {
 	if err != nil {
 		return errors.Wrap(err, "pipe readMsg")
 	}
-	h := body.(*msg.PipeHandShake)
-	p := pipe.NewPipe(conn)
-	p.ID = h.PipeID
-
+	phs := body.(*msg.PipeHandShake)
 	ControlMapLock.RLock()
-	ctl := ControlMap[h.ClientID]
+	ctl := ControlMap[phs.ClientID]
 	ControlMapLock.RUnlock()
 
 	prf := crypto.NewPrf12()
 	var masterKey []byte = make([]byte, 16)
-	uuid := make([]byte, 16)
-	for i := range uuid {
-		uuid[i] = h.PipeID[i]
-	}
-	fmt.Println("uuid:", uuid)
-	prf(masterKey, ctl.preMasterSecret, []byte(fmt.Sprintf("%d", h.ClientID)), uuid)
-	p.MasterKey = masterKey
+	prf(masterKey, ctl.preMasterSecret, phs.ClientID[:], phs.Once[:])
 	fmt.Println("masterKey:", masterKey)
-
-	cryptoConn, err := crypto.NewCryptoConn(conn, p.MasterKey)
+	cryptoConn, err := crypto.NewCryptoConn(conn, masterKey)
 	if err != nil {
 		return errors.Wrap(err, "crypto.NewCryptoConn")
 	}
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.MaxReceiveBuffer = 4194304
+	//server endpoint is the pipe connection source,so we use smux.Client
 	sess, err := smux.Client(cryptoConn, smuxConfig)
 	if err != nil {
 		return errors.Wrap(err, "smux.Client")
 	}
-	p.SetSess(sess)
 
-	ctl.putPipe(p)
+	ctl.putPipe(sess)
 	return nil
 }

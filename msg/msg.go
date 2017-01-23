@@ -32,7 +32,7 @@ type ClientIDExchange struct {
 }
 
 type PipeHandShake struct {
-	PipeID   crypto.UUID
+	Once     crypto.UUID
 	ClientID crypto.UUID
 }
 
@@ -104,7 +104,6 @@ func ReadMsg(r io.Reader) (MsgType, interface{}, error) {
 		return 0, nil, fmt.Errorf("invalid msg type %d", header[0])
 	}
 	err = json.Unmarshal(body, out)
-	fmt.Println("read msg:", out)
 	if err != nil {
 		return 0, nil, errors.Wrapf(err, "json unmarshal %d", header[0])
 	}

@@ -3,7 +3,6 @@ package main
 import (
 	"Lunnel/crypto"
 	"Lunnel/msg"
-	"Lunnel/pipe"
 	"fmt"
 	"io"
 	"net"
@@ -19,7 +18,7 @@ type Options struct {
 }
 
 var pingInterval time.Duration = time.Second * 8
-var pingTimeout time.Duration = time.Second * 21
+var pingTimeout time.Duration = time.Second * 13
 
 func NewControl(conn net.Conn, opt *Options) *Control {
 	ctl := &Control{
@@ -76,32 +75,6 @@ func (c *Control) moderator() {
 	c.ctlConn.Close()
 }
 
-func (c *Control) pipeHandShake(conn net.Conn) (*pipe.Pipe, error) {
-	p := pipe.NewPipe(conn)
-
-	uuid := p.GeneratePipeID()
-	var uuidm msg.PipeHandShake
-	uuidm.PipeID = uuid
-	uuidm.ClientID = c.ClientID
-	err := msg.WriteMsg(conn, msg.TypePipeHandShake, uuidm)
-	if err != nil {
-		return nil, errors.Wrap(err, "write pipe handshake")
-	}
-	prf := crypto.NewPrf12()
-	var masterKey []byte = make([]byte, 16)
-	uuidmar := make([]byte, 16)
-	for i := range uuidm.PipeID {
-		uuidmar[i] = uuidm.PipeID[i]
-	}
-	fmt.Println("uuid:", uuidmar)
-
-	prf(masterKey, c.preMasterSecret, []byte(fmt.Sprintf("%d", c.ClientID)), uuidmar)
-	p.MasterKey = masterKey
-	fmt.Println("masterKey:", masterKey)
-
-	return p, nil
-}
-
 func (c *Control) createPipe() {
 	pipeConn, err := CreateConn("www.longxboy.com:8081", true)
 	if err != nil {
@@ -111,39 +84,28 @@ func (c *Control) createPipe() {
 
 	pipe, err := c.pipeHandShake(pipeConn)
 	if err != nil {
+		pipeConn.Close()
 		panic(err)
 	}
 	defer pipe.Close()
-	cryptoConn, err := crypto.NewCryptoConn(pipeConn, pipe.MasterKey)
-	if err != nil {
-		panic(err)
-	}
-	smuxConfig := smux.DefaultConfig()
-	smuxConfig.MaxReceiveBuffer = 4194304
-	mux, err := smux.Server(cryptoConn, smuxConfig)
-	if err != nil {
-		panic(err)
-		return
-	}
-	pipe.SetSess(mux)
+
 	idx := 0
 	for {
 		if c.IsClosed() {
 			return
 		}
-		if mux.IsClosed() {
+		if pipe.IsClosed() {
 			return
 		}
-		stream, err := mux.AcceptStream()
+		stream, err := pipe.AcceptStream()
 		if err != nil {
-			panic(err)
+			fmt.Println("pipe accept stream error", err)
 			return
 		}
 		idx++
 		go func() {
 			defer stream.Close()
 
-			fmt.Println("open stream:", idx)
 			conn, err := net.Dial("tcp", stream.Tunnel())
 			if err != nil {
 				panic(err)
@@ -155,21 +117,18 @@ func (c *Control) createPipe() {
 			go func() {
 				io.Copy(stream, conn)
 				close(p1die)
-				fmt.Println("dst copy done:", idx)
 			}()
 			go func() {
 				io.Copy(conn, stream)
 				close(p2die)
-				fmt.Println("src copy done:", idx)
 			}()
 			select {
 			case <-p1die:
 			case <-p2die:
 			}
-			fmt.Println("close Stream:", idx)
-
 		}()
 	}
+	fmt.Println("deleting pipe!!")
 }
 
 func (c *Control) ClientSyncTunnels() error {
@@ -196,7 +155,6 @@ func (c *Control) recvLoop() {
 			return
 		}
 		mType, _, err := msg.ReadMsg(c.ctlConn)
-		fmt.Println("read:", mType, err)
 		if err != nil {
 			c.Close()
 			return
@@ -222,7 +180,7 @@ func (c *Control) writeLoop() {
 		case msgBody := <-c.writeChan:
 			if msgBody.mType == msg.TypePing || msgBody.mType == msg.TypePong {
 				if time.Now().Before(lastWrite.Add(pingInterval / 2)) {
-					//continue
+					continue
 				}
 			}
 			fmt.Println(time.Now().UnixNano(), "  write:", msgBody.mType)
@@ -299,4 +257,29 @@ func (c *Control) ClientHandShake() error {
 	fmt.Println("client_id:", c.ClientID)
 
 	return nil
+}
+
+func (c *Control) pipeHandShake(conn net.Conn) (*smux.Session, error) {
+	var phs msg.PipeHandShake
+	phs.Once = crypto.GenUUID()
+	phs.ClientID = c.ClientID
+	err := msg.WriteMsg(conn, msg.TypePipeHandShake, phs)
+	if err != nil {
+		return nil, errors.Wrap(err, "write pipe handshake")
+	}
+	prf := crypto.NewPrf12()
+	var masterKey []byte = make([]byte, 16)
+	prf(masterKey, c.preMasterSecret, c.ClientID[:], phs.Once[:])
+	fmt.Println("masterKey:", masterKey)
+	cryptoConn, err := crypto.NewCryptoConn(conn, masterKey)
+	if err != nil {
+		return nil, errors.Wrap(err, "crypto.NewCryptoConn")
+	}
+	smuxConfig := smux.DefaultConfig()
+	smuxConfig.MaxReceiveBuffer = 4194304
+	mux, err := smux.Server(cryptoConn, smuxConfig)
+	if err != nil {
+		return nil, errors.Wrap(err, "smux.Server")
+	}
+	return mux, nil
 }
