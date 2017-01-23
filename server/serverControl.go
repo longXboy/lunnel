@@ -74,17 +74,19 @@ type Control struct {
 }
 
 func (c *Control) addIdlePipe(pipe *smux.Session) {
-	pNode := &pipeNode{pipe: pipe}
+	pNode := &pipeNode{pipe: pipe, prev: nil, next: nil}
 	if c.idlePipes != nil {
 		c.idlePipes.prev = pNode
 		pNode.next = c.idlePipes
 	}
 	c.idlePipes = pNode
 	c.idleCount++
+	println("add idle:", pipe)
+
 }
 
 func (c *Control) addBusyPipe(pipe *smux.Session) {
-	pNode := &pipeNode{pipe: pipe}
+	pNode := &pipeNode{pipe: pipe, prev: nil, next: nil}
 	if c.busyPipes != nil {
 		c.busyPipes.prev = pNode
 		pNode.next = c.busyPipes
@@ -103,6 +105,7 @@ func (c *Control) removeIdleNode(pNode *pipeNode) {
 		}
 	}
 	c.idleCount--
+	println("remove idle:", pNode.pipe)
 }
 
 func (c *Control) removeBusyNode(pNode *pipeNode) {
@@ -136,25 +139,31 @@ func (c *Control) getPipe() *smux.Session {
 	}
 }
 
+func (c *Control) printNodes() {
+
+}
+
 func (c *Control) clean() {
 	busy := c.busyPipes
 	for {
 		if busy == nil {
 			break
 		}
+		temp := busy.next
 		if busy.pipe.IsClosed() {
 			c.removeBusyNode(busy)
 		} else if busy.pipe.NumStreams() < maxStreams {
 			c.removeBusyNode(busy)
 			c.addIdlePipe(busy.pipe)
 		}
-		busy = busy.next
+		busy = temp
 	}
 	idle := c.idlePipes
 	for {
 		if idle == nil {
 			return
 		}
+		temp := idle.next
 		if idle.pipe.IsClosed() {
 			c.removeIdleNode(idle)
 		} else if idle.pipe.NumStreams() == 0 && c.idleCount > maxIdlePipes {
@@ -162,7 +171,7 @@ func (c *Control) clean() {
 			c.removeIdleNode(idle)
 			idle.pipe.Close()
 		}
-		idle = idle.next
+		idle = temp
 	}
 	return
 
@@ -174,8 +183,9 @@ func (c *Control) getIdleFast() (idle *pipeNode) {
 			return
 		}
 		if idle.pipe.IsClosed() {
+			temp := idle.next
 			c.removeIdleNode(idle)
-			idle = idle.next
+			idle = temp
 		} else {
 			c.removeIdleNode(idle)
 			return
@@ -217,7 +227,7 @@ func (c *Control) pipeManage() {
 									c.addBusyPipe(p)
 								}
 							}
-						case _ = <-c.die:
+						case <-c.die:
 							return
 						}
 					}
@@ -228,6 +238,7 @@ func (c *Control) pipeManage() {
 				available = idle.pipe
 			}
 		}
+		fmt.Println("num stream:", available.NumStreams())
 	Available:
 		select {
 		case <-ticker.C:
@@ -281,7 +292,7 @@ func (c *Control) moderator() {
 		if !idle.pipe.IsClosed() {
 			idle.pipe.Close()
 		}
-		c.removeIdleNode(idle)
+		idle = idle.next
 	}
 	busy := c.busyPipes
 	for {
@@ -291,7 +302,7 @@ func (c *Control) moderator() {
 		if !busy.pipe.IsClosed() {
 			busy.pipe.Close()
 		}
-		c.removeBusyNode(busy)
+		busy = busy.next
 	}
 	c.ctlConn.Close()
 }
