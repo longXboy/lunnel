@@ -3,20 +3,28 @@ package main
 import (
 	"Lunnel/kcp"
 	"crypto/tls"
+	"flag"
 	"fmt"
 	"net"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 )
 
 func main() {
+	configFile := flag.String("config", "", "a string")
+	flag.Parse()
+	conf := LoadConfig(*configFile)
+	InitLog(conf)
+	fmt.Println(conf.TunnelAddr)
+	fmt.Println(conf.ControlAddr)
+
 	go func() {
-		addr := "www.longxboy.com:8081"
-		fmt.Println("listening:", addr)
-		lis, err := kcp.Listen(addr)
+		lis, err := kcp.Listen(conf.TunnelAddr)
 		if err != nil {
 			panic(err)
 		}
+		logrus.WithFields(logrus.Fields{"address": conf.TunnelAddr, "protocol": "udp"}).Info("server's tunnel listen at")
 		for {
 			if conn, err := lis.Accept(); err == nil {
 				go handlePipe(conn)
@@ -26,12 +34,11 @@ func main() {
 		}
 	}()
 
-	addr := "www.longxboy.com:8080"
-	fmt.Println("listening:", addr)
-	lis, err := kcp.Listen(addr)
+	lis, err := kcp.Listen(conf.ControlAddr)
 	if err != nil {
 		panic(err)
 	}
+	logrus.WithFields(logrus.Fields{"address": conf.ControlAddr, "protocol": "udp"}).Info("server's control listen at")
 	for {
 		if conn, err := lis.Accept(); err == nil {
 			var err error

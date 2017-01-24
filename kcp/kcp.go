@@ -2,6 +2,7 @@ package kcp
 
 import (
 	"net"
+	"runtime"
 
 	"github.com/pkg/errors"
 	kcp "github.com/xtaci/kcp-go"
@@ -54,9 +55,11 @@ func Listen(addr string) (*Listener, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "kcp ListenWithOptions")
 	}
-
-	if err := lis.SetDSCP(0); err != nil {
-		return nil, errors.Wrap(err, "kcp SetDSCP")
+	//darwin not accept 0.0.0.0 set dscp
+	if lis.Addr().(*net.UDPAddr).IP.String() != "::" || runtime.GOOS != "darwin" {
+		if err := lis.SetDSCP(0); err != nil {
+			return nil, errors.Wrap(err, "kcp SetDSCP")
+		}
 	}
 	if err := lis.SetReadBuffer(SockBuf); err != nil {
 		return nil, errors.Wrap(err, "kcp SetReadBuffer")

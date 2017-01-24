@@ -86,4 +86,5 @@ func Test_sockBuf(t *testing.T) {
 		t.Error(err)
 		break
 	}
+	time.Sleep(time.Second * 2)
 }
