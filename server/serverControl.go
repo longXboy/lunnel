@@ -17,10 +17,11 @@ import (
 var minPipes int = 2
 var maxPipes int = 16
 var maxIdlePipes int = 3
-var maxStreams int = 4
+var maxStreams int = 6
 
 var pingInterval time.Duration = time.Second * 8
 var pingTimeout time.Duration = time.Second * 13
+var cleanInterval time.Duration = time.Second * 5
 
 var ControlMapLock sync.RWMutex
 var ControlMap = make(map[crypto.UUID]*Control)
@@ -81,7 +82,6 @@ func (c *Control) addIdlePipe(pipe *smux.Session) {
 	}
 	c.idlePipes = pNode
 	c.idleCount++
-	println("add idle:", pipe)
 
 }
 
@@ -92,12 +92,14 @@ func (c *Control) addBusyPipe(pipe *smux.Session) {
 		pNode.next = c.busyPipes
 	}
 	c.busyPipes = pNode
-	println("add busy:", pipe)
 }
 
 func (c *Control) removeIdleNode(pNode *pipeNode) {
 	if pNode.prev == nil {
 		c.idlePipes = pNode.next
+		if c.idlePipes != nil {
+			c.idlePipes.prev = nil
+		}
 	} else {
 		pNode.prev.next = pNode.next
 		if pNode.next != nil {
@@ -105,19 +107,20 @@ func (c *Control) removeIdleNode(pNode *pipeNode) {
 		}
 	}
 	c.idleCount--
-	println("remove idle:", pNode.pipe)
 }
 
 func (c *Control) removeBusyNode(pNode *pipeNode) {
 	if pNode.prev == nil {
 		c.busyPipes = pNode.next
+		if c.busyPipes != nil {
+			c.busyPipes.prev = nil
+		}
 	} else {
 		pNode.prev.next = pNode.next
 		if pNode.next != nil {
 			pNode.next.prev = pNode.prev
 		}
 	}
-	println("remove busy:", pNode.pipe)
 }
 
 func (c *Control) putPipe(p *smux.Session) {
@@ -140,7 +143,14 @@ func (c *Control) getPipe() *smux.Session {
 }
 
 func (c *Control) printNodes() {
-
+	temp := c.idlePipes
+	for {
+		if temp == nil {
+			return
+		}
+		fmt.Println(temp)
+		temp = temp.next
+	}
 }
 
 func (c *Control) clean() {
@@ -149,29 +159,26 @@ func (c *Control) clean() {
 		if busy == nil {
 			break
 		}
-		temp := busy.next
 		if busy.pipe.IsClosed() {
 			c.removeBusyNode(busy)
 		} else if busy.pipe.NumStreams() < maxStreams {
 			c.removeBusyNode(busy)
 			c.addIdlePipe(busy.pipe)
 		}
-		busy = temp
+		busy = busy.next
 	}
 	idle := c.idlePipes
 	for {
 		if idle == nil {
 			return
 		}
-		temp := idle.next
 		if idle.pipe.IsClosed() {
 			c.removeIdleNode(idle)
 		} else if idle.pipe.NumStreams() == 0 && c.idleCount > maxIdlePipes {
-			fmt.Println("closing pipe!!!count:", c.idleCount)
 			c.removeIdleNode(idle)
 			idle.pipe.Close()
 		}
-		idle = temp
+		idle = idle.next
 	}
 	return
 
@@ -183,9 +190,8 @@ func (c *Control) getIdleFast() (idle *pipeNode) {
 			return
 		}
 		if idle.pipe.IsClosed() {
-			temp := idle.next
 			c.removeIdleNode(idle)
-			idle = temp
+			idle = idle.next
 		} else {
 			c.removeIdleNode(idle)
 			return
@@ -193,8 +199,6 @@ func (c *Control) getIdleFast() (idle *pipeNode) {
 	}
 	return
 }
-
-var cleanInterval time.Duration = time.Second * 5
 
 func (c *Control) pipeManage() {
 	var available *smux.Session
@@ -238,7 +242,7 @@ func (c *Control) pipeManage() {
 				available = idle.pipe
 			}
 		}
-		fmt.Println("num stream:", available.NumStreams())
+		fmt.Printf("num stream:%d p:%p\n", available.NumStreams(), available)
 	Available:
 		select {
 		case <-ticker.C:
