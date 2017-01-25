@@ -1,0 +1,6 @@
+{
+"Prod": false,
+"LogFile": "",
+"SelfSignedCert": true,
+"Tunnels": [{"Local": "127.0.0.1:32768"}]
+}

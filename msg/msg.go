@@ -23,6 +23,10 @@ const (
 	TypePong              MsgType = 9
 )
 
+type ControlClientHello struct {
+	EncryptMode int
+}
+
 type CipherKeyExchange struct {
 	CipherKey []byte
 }
@@ -31,14 +35,15 @@ type ClientIDExchange struct {
 	ClientID crypto.UUID
 }
 
-type PipeHandShake struct {
+type PipeClientHello struct {
 	Once     crypto.UUID
 	ClientID crypto.UUID
 }
 
 type Tunnel struct {
-	LocalAddress  string
-	RemoteAddress string
+	Schema        string `json:"Schema"`
+	LocalAddress  string `json:"Local"`
+	RemoteAddress string `json:"Remote"`
 }
 
 type SyncTunnels struct {
@@ -93,7 +98,7 @@ func ReadMsg(r io.Reader) (MsgType, interface{}, error) {
 	if MsgType(header[0]) == TypeClientKeyExchange || MsgType(header[0]) == TypeServerKeyExchange {
 		out = new(CipherKeyExchange)
 	} else if MsgType(header[0]) == TypePipeHandShake {
-		out = new(PipeHandShake)
+		out = new(PipeClientHello)
 	} else if MsgType(header[0]) == TypeClientID {
 		out = new(ClientIDExchange)
 	} else if MsgType(header[0]) == TypeSyncTunnels {

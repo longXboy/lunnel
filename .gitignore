@@ -2,3 +2,4 @@ server/server
 cli/cli
 .idea
 .DS_Store
+assets/temp

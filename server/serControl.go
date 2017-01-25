@@ -14,8 +14,6 @@ import (
 	"github.com/xtaci/smux"
 )
 
-var minPipes int = 2
-var maxPipes int = 16
 var maxIdlePipes int = 3
 var maxStreams int = 6
 
@@ -503,7 +501,7 @@ func PipeHandShake(conn net.Conn) error {
 	if err != nil {
 		return errors.Wrap(err, "pipe readMsg")
 	}
-	phs := body.(*msg.PipeHandShake)
+	phs := body.(*msg.PipeClientHello)
 	ControlMapLock.RLock()
 	ctl := ControlMap[phs.ClientID]
 	ControlMapLock.RUnlock()

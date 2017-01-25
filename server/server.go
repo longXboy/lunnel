@@ -4,7 +4,7 @@ import (
 	"Lunnel/kcp"
 	"crypto/tls"
 	"flag"
-	"fmt"
+	"log"
 	"net"
 
 	"github.com/Sirupsen/logrus"
@@ -12,19 +12,20 @@ import (
 )
 
 func main() {
-	configFile := flag.String("config", "", "a string")
+	configFile := flag.String("config", "", "path of config file")
 	flag.Parse()
-	conf := LoadConfig(*configFile)
-	InitLog(conf)
-	fmt.Println(conf.TunnelAddr)
-	fmt.Println(conf.ControlAddr)
+	err := LoadConfig(*configFile)
+	if err != nil {
+		log.Fatalf("load config failed!err:=%v", err)
+	}
+	InitLog()
 
 	go func() {
-		lis, err := kcp.Listen(conf.TunnelAddr)
+		lis, err := kcp.Listen(serverConf.TunnelAddr)
 		if err != nil {
 			panic(err)
 		}
-		logrus.WithFields(logrus.Fields{"address": conf.TunnelAddr, "protocol": "udp"}).Info("server's tunnel listen at")
+		logrus.WithFields(logrus.Fields{"address": serverConf.TunnelAddr, "protocol": "udp"}).Info("server's tunnel listen at")
 		for {
 			if conn, err := lis.Accept(); err == nil {
 				go handlePipe(conn)
@@ -34,22 +35,21 @@ func main() {
 		}
 	}()
 
-	lis, err := kcp.Listen(conf.ControlAddr)
+	lis, err := kcp.Listen(serverConf.ControlAddr)
 	if err != nil {
 		panic(err)
 	}
-	logrus.WithFields(logrus.Fields{"address": conf.ControlAddr, "protocol": "udp"}).Info("server's control listen at")
+	logrus.WithFields(logrus.Fields{"address": serverConf.ControlAddr, "protocol": "udp"}).Info("server's control listen at")
 	for {
 		if conn, err := lis.Accept(); err == nil {
 			var err error
 			tlsConfig := &tls.Config{}
 			tlsConfig.Certificates = make([]tls.Certificate, 1)
-			tlsConfig.Certificates[0], err = tls.LoadX509KeyPair("ec.crt", "ec.uncrypted.pem")
+			tlsConfig.Certificates[0], err = tls.LoadX509KeyPair(serverConf.TlsCert, serverConf.TlsKey)
 			if err != nil {
-				panic(err)
+				panic(serverConf.TlsCert + serverConf.TlsKey + err.Error())
 				return
 			}
-			tlsConfig.ServerName = "www.longxboy.com"
 			tlsConn := tls.Server(conn, tlsConfig)
 			go handleControl(tlsConn)
 		} else {
@@ -67,7 +67,7 @@ func handleControl(conn net.Conn) {
 	if err != nil {
 		panic(errors.Wrap(err, "ctl.ServerHandShake"))
 	}
-	err = ctl.ServerSyncTunnels("www.longxboy.com")
+	err = ctl.ServerSyncTunnels(serverConf.ServerDomain)
 	if err != nil {
 		panic(errors.Wrap(err, "ctl.ServerSyncTunnels"))
 	}

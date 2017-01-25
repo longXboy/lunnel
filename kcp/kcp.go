@@ -55,7 +55,7 @@ func Listen(addr string) (*Listener, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "kcp ListenWithOptions")
 	}
-	//darwin not accept 0.0.0.0 set dscp
+	//can't set dscp with multi interfaces in mac os x
 	if lis.Addr().(*net.UDPAddr).IP.String() != "::" || runtime.GOOS != "darwin" {
 		if err := lis.SetDSCP(0); err != nil {
 			return nil, errors.Wrap(err, "kcp SetDSCP")

@@ -13,23 +13,17 @@ import (
 	"github.com/xtaci/smux"
 )
 
-type Options struct {
-	Tunnels []msg.Tunnel
-}
-
 var pingInterval time.Duration = time.Second * 8
 var pingTimeout time.Duration = time.Second * 13
 
-func NewControl(conn net.Conn, opt *Options) *Control {
+func NewControl(conn net.Conn) *Control {
 	ctl := &Control{
 		ctlConn:   conn,
 		die:       make(chan struct{}),
 		toDie:     make(chan struct{}),
 		writeChan: make(chan writeReq, 128),
 	}
-	if opt != nil {
-		ctl.tunnels = opt.Tunnels
-	}
+	ctl.tunnels = cliConf.Tunnels
 	return ctl
 }
 
@@ -76,7 +70,7 @@ func (c *Control) moderator() {
 }
 
 func (c *Control) createPipe() {
-	pipeConn, err := CreateConn("www.longxboy.com:8081", true)
+	pipeConn, err := CreateConn(cliConf.TunnelAddr, true)
 	if err != nil {
 		panic(err)
 	}
@@ -260,7 +254,7 @@ func (c *Control) ClientHandShake() error {
 }
 
 func (c *Control) pipeHandShake(conn net.Conn) (*smux.Session, error) {
-	var phs msg.PipeHandShake
+	var phs msg.PipeClientHello
 	phs.Once = crypto.GenUUID()
 	phs.ClientID = c.ClientID
 	err := msg.WriteMsg(conn, msg.TypePipeHandShake, phs)

@@ -2,12 +2,13 @@ package main
 
 import (
 	"Lunnel/kcp"
-	"Lunnel/msg"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"flag"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net"
 
 	"github.com/klauspost/compress/snappy"
@@ -49,22 +50,27 @@ func CreateConn(addr string, noComp bool) (net.Conn, error) {
 }
 
 func main() {
-	conn, err := CreateConn("www.longxboy.com:8080", true)
+	configFile := flag.String("config", "", "path of config file")
+	flag.Parse()
+	err := LoadConfig(*configFile)
+	if err != nil {
+		log.Fatalf("load config failed!err:=%v", err)
+	}
+	InitLog()
+
+	conn, err := CreateConn(cliConf.ControlAddr, true)
 	if err != nil {
 		panic(err)
 	}
 
-	tlsConfig, err := LoadTLSConfig([]string{"./ec.crt"})
+	tlsConfig, err := LoadTLSConfig([]string{cliConf.TrustedCert})
 	if err != nil {
-		panic(err)
+		panic(err.Error() + cliConf.TrustedCert)
 	}
-	tlsConfig.ServerName = "www.longxboy.com"
+	tlsConfig.ServerName = cliConf.ServerDomain
 	tlsConn := tls.Client(conn, tlsConfig)
 
-	opt := Options{Tunnels: make([]msg.Tunnel, 0)}
-	opt.Tunnels = append(opt.Tunnels, msg.Tunnel{LocalAddress: "127.0.0.1:32768"})
-
-	ctl := NewControl(tlsConn, &opt)
+	ctl := NewControl(tlsConn)
 	defer ctl.Close()
 
 	err = ctl.ClientHandShake()
