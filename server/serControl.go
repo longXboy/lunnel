@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 	"github.com/xtaci/smux"
 )
@@ -140,17 +141,6 @@ func (c *Control) getPipe() *smux.Session {
 	}
 }
 
-func (c *Control) printNodes() {
-	temp := c.idlePipes
-	for {
-		if temp == nil {
-			return
-		}
-		fmt.Println(temp)
-		temp = temp.next
-	}
-}
-
 func (c *Control) clean() {
 	busy := c.busyPipes
 	for {
@@ -173,6 +163,7 @@ func (c *Control) clean() {
 		if idle.pipe.IsClosed() {
 			c.removeIdleNode(idle)
 		} else if idle.pipe.NumStreams() == 0 && c.idleCount > maxIdlePipes {
+			log.WithFields(log.Fields{"time": time.Now().Unix(), "pipe": fmt.Sprintf("%p", idle.pipe)}).Infoln("remove and close idle")
 			c.removeIdleNode(idle)
 			idle.pipe.Close()
 		}
@@ -203,7 +194,9 @@ func (c *Control) pipeManage() {
 	ticker := time.NewTicker(cleanInterval)
 	defer ticker.Stop()
 	for {
+	Prepare:
 		if available == nil || available.IsClosed() {
+			log.WithField("available", fmt.Sprintf("%p", available)).Info("get ava!")
 			available = nil
 			idle := c.getIdleFast()
 			if idle == nil {
@@ -211,6 +204,7 @@ func (c *Control) pipeManage() {
 				idle := c.getIdleFast()
 				c.writeChan <- writeReq{msg.TypePipeReq, nil}
 				if idle == nil {
+					pipeGetTimeout := time.After(time.Second * 12)
 					for {
 						select {
 						case <-ticker.C:
@@ -231,6 +225,8 @@ func (c *Control) pipeManage() {
 							}
 						case <-c.die:
 							return
+						case <-pipeGetTimeout:
+							goto Prepare
 						}
 					}
 				} else {
@@ -240,7 +236,6 @@ func (c *Control) pipeManage() {
 				available = idle.pipe
 			}
 		}
-		fmt.Printf("num stream:%d p:%p\n", available.NumStreams(), available)
 	Available:
 		select {
 		case <-ticker.C:
@@ -262,7 +257,7 @@ func (c *Control) pipeManage() {
 }
 
 func (c *Control) Close() {
-	fmt.Println("control close")
+	panic("closing")
 	select {
 	case c.toDie <- struct{}{}:
 	default:
@@ -281,7 +276,7 @@ func (c *Control) IsClosed() bool {
 
 func (c *Control) moderator() {
 	_ = <-c.toDie
-	fmt.Println("!!!!to die!!!!!!!")
+	log.WithFields(log.Fields{"ClientId": c.ClientID}).Infoln("client going to close")
 	close(c.die)
 	for _, t := range c.tunnels {
 		t.listener.Close()
@@ -315,8 +310,9 @@ func (c *Control) recvLoop() {
 		if c.IsClosed() {
 			return
 		}
-		mType, _, err := msg.ReadMsg(c.ctlConn)
+		mType, _, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
 		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Warningln("ReadMsgWithoutTimeout failed")
 			c.Close()
 			return
 		}
@@ -346,12 +342,10 @@ func (c *Control) writeLoop() {
 			}
 			if msgBody.mType == msg.TypePipeReq {
 				idx++
-				fmt.Println("req pipe:", idx)
 			}
 			lastWrite = time.Now()
 			err := msg.WriteMsg(c.ctlConn, msgBody.mType, msgBody.body)
 			if err != nil {
-				fmt.Println("write error:", err.Error())
 				c.Close()
 				return
 			}
@@ -415,7 +409,6 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 					defer conn.Close()
 					p := c.getPipe()
 					if p == nil {
-						fmt.Println("failed to get pipes!")
 						return
 					}
 					stream, err := p.OpenStream(t.LocalAddress)
@@ -451,7 +444,6 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 	if err != nil {
 		return errors.Wrap(err, "WriteMsg sstm")
 	}
-	fmt.Printf("tunnels:%v\n", c.tunnels)
 	return nil
 }
 
@@ -463,18 +455,17 @@ func (c *Control) GenerateClientId() crypto.UUID {
 func (c *Control) ServerHandShake() error {
 	_, body, err := msg.ReadMsg(c.ctlConn)
 	if err != nil {
-		panic(err)
+		return errors.Wrap(err, "msg.ReadMsg")
 	}
 	ckem := body.(*msg.CipherKeyExchange)
 	priv, keyMsg := crypto.GenerateKeyExChange()
 	if keyMsg == nil || priv == nil {
-		return fmt.Errorf("crypto.GenerateKeyExChange error ,exchange key is nil")
+		return errors.Errorf("crypto.GenerateKeyExChange error ,exchange key is nil")
 	}
 	preMasterSecret, err := crypto.ProcessKeyExchange(priv, ckem.CipherKey)
 	if err != nil {
 		return errors.Wrap(err, "crypto.ProcessKeyExchange")
 	}
-	fmt.Println(preMasterSecret)
 	c.preMasterSecret = preMasterSecret
 	var skem msg.CipherKeyExchange
 	skem.CipherKey = keyMsg
@@ -485,7 +476,6 @@ func (c *Control) ServerHandShake() error {
 
 	var cidm msg.ClientIDExchange
 	cidm.ClientID = c.GenerateClientId()
-	fmt.Println("client_id:", c.ClientID)
 	err = msg.WriteMsg(c.ctlConn, msg.TypeClientID, cidm)
 	if err != nil {
 		return errors.Wrap(err, "Write ClientId")
@@ -496,12 +486,7 @@ func (c *Control) ServerHandShake() error {
 	return nil
 }
 
-func PipeHandShake(conn net.Conn) error {
-	_, body, err := msg.ReadMsg(conn)
-	if err != nil {
-		return errors.Wrap(err, "pipe readMsg")
-	}
-	phs := body.(*msg.PipeClientHello)
+func PipeHandShake(conn net.Conn, phs *msg.PipeClientHello) error {
 	ControlMapLock.RLock()
 	ctl := ControlMap[phs.ClientID]
 	ControlMapLock.RUnlock()
@@ -509,7 +494,6 @@ func PipeHandShake(conn net.Conn) error {
 	prf := crypto.NewPrf12()
 	var masterKey []byte = make([]byte, 16)
 	prf(masterKey, ctl.preMasterSecret, phs.ClientID[:], phs.Once[:])
-	fmt.Println("masterKey:", masterKey)
 	cryptoConn, err := crypto.NewCryptoConn(conn, masterKey)
 	if err != nil {
 		return errors.Wrap(err, "crypto.NewCryptoConn")

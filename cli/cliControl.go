@@ -3,12 +3,12 @@ package main
 import (
 	"Lunnel/crypto"
 	"Lunnel/msg"
-	"fmt"
 	"io"
 	"net"
 	"sync/atomic"
 	"time"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 	"github.com/xtaci/smux"
 )
@@ -46,6 +46,7 @@ type Control struct {
 }
 
 func (c *Control) Close() {
+	log.WithField("time", time.Now().UnixNano()).Panicln("closing")
 	select {
 	case c.toDie <- struct{}{}:
 	default:
@@ -64,26 +65,27 @@ func (c *Control) IsClosed() bool {
 
 func (c *Control) moderator() {
 	_ = <-c.toDie
-	fmt.Println("to die")
 	close(c.die)
 	c.ctlConn.Close()
 }
 
 func (c *Control) createPipe() {
-	pipeConn, err := CreateConn(cliConf.TunnelAddr, true)
+	log.WithField("time", time.Now().Unix()).Infoln("create pipe!")
+	pipeConn, err := CreateConn(cliConf.ControlAddr, true)
 	if err != nil {
-		panic(err)
+		log.WithFields(log.Fields{"addr": cliConf.ControlAddr, "err": err}).Errorln("creating tunnel conn to server failed!")
+		return
 	}
 	defer pipeConn.Close()
 
 	pipe, err := c.pipeHandShake(pipeConn)
 	if err != nil {
 		pipeConn.Close()
-		panic(err)
+		log.WithFields(log.Fields{"err": err}).Errorln("pipeHandShake failed!")
+		return
 	}
 	defer pipe.Close()
 
-	idx := 0
 	for {
 		if c.IsClosed() {
 			return
@@ -93,16 +95,16 @@ func (c *Control) createPipe() {
 		}
 		stream, err := pipe.AcceptStream()
 		if err != nil {
-			fmt.Println("pipe accept stream error", err)
+			log.WithFields(log.Fields{"err": err, "time": time.Now().Unix()}).Warningln("pipeAcceptStream failed!")
 			return
 		}
-		idx++
 		go func() {
 			defer stream.Close()
 
 			conn, err := net.Dial("tcp", stream.Tunnel())
 			if err != nil {
-				panic(err)
+				log.WithFields(log.Fields{"err": err, "local": stream.Tunnel()}).Warningln("pipe dial local failed!")
+				return
 			}
 			defer conn.Close()
 			p1die := make(chan struct{})
@@ -122,7 +124,6 @@ func (c *Control) createPipe() {
 			}
 		}()
 	}
-	fmt.Println("deleting pipe!!")
 }
 
 func (c *Control) ClientSyncTunnels() error {
@@ -138,7 +139,7 @@ func (c *Control) ClientSyncTunnels() error {
 	}
 	cstm = body.(*msg.SyncTunnels)
 	c.tunnels = cstm.Tunnels
-	fmt.Printf("tunnels:%v\n", c.tunnels)
+	log.WithFields(log.Fields{"tunnels": c.tunnels}).Infoln("client sync tunnel complete")
 	return nil
 }
 
@@ -148,8 +149,9 @@ func (c *Control) recvLoop() {
 		if c.IsClosed() {
 			return
 		}
-		mType, _, err := msg.ReadMsg(c.ctlConn)
+		mType, _, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
 		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Warningln("ReadMsgWithoutTimeout failed")
 			c.Close()
 			return
 		}
@@ -177,12 +179,9 @@ func (c *Control) writeLoop() {
 					continue
 				}
 			}
-			fmt.Println(time.Now().UnixNano(), "  write:", msgBody.mType)
-
 			lastWrite = time.Now()
 			err := msg.WriteMsg(c.ctlConn, msgBody.mType, msgBody.body)
 			if err != nil {
-				fmt.Println("write error:", err.Error())
 				c.Close()
 				return
 			}
@@ -220,7 +219,7 @@ func (c *Control) Run() {
 func (c *Control) ClientHandShake() error {
 	priv, keyMsg := crypto.GenerateKeyExChange()
 	if keyMsg == nil || priv == nil {
-		return fmt.Errorf("GenerateKeyExChange error,key is nil")
+		return errors.Errorf("GenerateKeyExChange error,key is nil")
 	}
 	var ckem msg.CipherKeyExchange
 	ckem.CipherKey = keyMsg
@@ -238,7 +237,6 @@ func (c *Control) ClientHandShake() error {
 	if err != nil {
 		return errors.Wrap(err, "crypto.ProcessKeyExchange")
 	}
-	fmt.Println(preMasterSecret)
 	c.preMasterSecret = preMasterSecret
 
 	_, body, err = msg.ReadMsg(c.ctlConn)
@@ -248,7 +246,6 @@ func (c *Control) ClientHandShake() error {
 	cidm := body.(*msg.ClientIDExchange)
 
 	c.ClientID = cidm.ClientID
-	fmt.Println("client_id:", c.ClientID)
 
 	return nil
 }
@@ -257,14 +254,13 @@ func (c *Control) pipeHandShake(conn net.Conn) (*smux.Session, error) {
 	var phs msg.PipeClientHello
 	phs.Once = crypto.GenUUID()
 	phs.ClientID = c.ClientID
-	err := msg.WriteMsg(conn, msg.TypePipeHandShake, phs)
+	err := msg.WriteMsg(conn, msg.TypePipeClientHello, phs)
 	if err != nil {
 		return nil, errors.Wrap(err, "write pipe handshake")
 	}
 	prf := crypto.NewPrf12()
 	var masterKey []byte = make([]byte, 16)
 	prf(masterKey, c.preMasterSecret, c.ClientID[:], phs.Once[:])
-	fmt.Println("masterKey:", masterKey)
 	cryptoConn, err := crypto.NewCryptoConn(conn, masterKey)
 	if err != nil {
 		return nil, errors.Wrap(err, "crypto.NewCryptoConn")

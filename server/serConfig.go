@@ -3,10 +3,10 @@ package main
 import (
 	"encoding/json"
 	"io/ioutil"
-	"log"
+	rawLog "log"
 	"os"
 
-	"github.com/Sirupsen/logrus"
+	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 )
 
@@ -70,20 +70,20 @@ func LoadConfig(configFile string) error {
 
 func InitLog() {
 	if serverConf.Prod {
-		logrus.SetLevel(logrus.WarnLevel)
+		log.SetLevel(log.WarnLevel)
 	} else {
-		logrus.SetLevel(logrus.DebugLevel)
+		log.SetLevel(log.DebugLevel)
 	}
 	if serverConf.LogFile != "" {
 		f, err := os.OpenFile(serverConf.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
 		if err != nil {
-			log.Fatalf("open log file failed!err:=%v\n", err)
+			rawLog.Fatalf("open log file failed!err:=%v\n", err)
 			return
 		}
-		logrus.SetOutput(f)
-		logrus.SetFormatter(&logrus.JSONFormatter{})
+		log.SetOutput(f)
+		log.SetFormatter(&log.JSONFormatter{})
 	} else {
-		logrus.SetOutput(os.Stdout)
-		logrus.SetFormatter(&logrus.TextFormatter{})
+		log.SetOutput(os.Stdout)
+		log.SetFormatter(&log.TextFormatter{})
 	}
 }

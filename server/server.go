@@ -2,56 +2,57 @@ package main
 
 import (
 	"Lunnel/kcp"
+	"Lunnel/msg"
 	"crypto/tls"
 	"flag"
-	"log"
+	rawLog "log"
 	"net"
 
-	"github.com/Sirupsen/logrus"
+	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 )
 
 func main() {
-	configFile := flag.String("config", "", "path of config file")
+	configFile := flag.String("config", "../assets/server/config.json", "path of config file")
 	flag.Parse()
 	err := LoadConfig(*configFile)
 	if err != nil {
-		log.Fatalf("load config failed!err:=%v", err)
+		rawLog.Fatalf("load config failed!err:=%v", err)
 	}
 	InitLog()
-
-	go func() {
-		lis, err := kcp.Listen(serverConf.TunnelAddr)
-		if err != nil {
-			panic(err)
-		}
-		logrus.WithFields(logrus.Fields{"address": serverConf.TunnelAddr, "protocol": "udp"}).Info("server's tunnel listen at")
-		for {
-			if conn, err := lis.Accept(); err == nil {
-				go handlePipe(conn)
-			} else {
-				panic(err)
-			}
-		}
-	}()
 
 	lis, err := kcp.Listen(serverConf.ControlAddr)
 	if err != nil {
 		panic(err)
 	}
-	logrus.WithFields(logrus.Fields{"address": serverConf.ControlAddr, "protocol": "udp"}).Info("server's control listen at")
+	log.WithFields(log.Fields{"address": serverConf.ControlAddr, "protocol": "udp"}).Infoln("server's control listen at")
 	for {
 		if conn, err := lis.Accept(); err == nil {
-			var err error
-			tlsConfig := &tls.Config{}
-			tlsConfig.Certificates = make([]tls.Certificate, 1)
-			tlsConfig.Certificates[0], err = tls.LoadX509KeyPair(serverConf.TlsCert, serverConf.TlsKey)
-			if err != nil {
-				panic(serverConf.TlsCert + serverConf.TlsKey + err.Error())
-				return
-			}
-			tlsConn := tls.Server(conn, tlsConfig)
-			go handleControl(tlsConn)
+			go func() {
+				mType, body, err := msg.ReadMsg(conn)
+				if err != nil {
+					conn.Close()
+					log.WithFields(log.Fields{"err": err}).Warningln("read handshake msg failed!")
+					return
+				}
+				if mType == msg.TypeControlClientHello {
+					var err error
+					tlsConfig := &tls.Config{}
+					tlsConfig.Certificates = make([]tls.Certificate, 1)
+					tlsConfig.Certificates[0], err = tls.LoadX509KeyPair(serverConf.TlsCert, serverConf.TlsKey)
+					if err != nil {
+						conn.Close()
+						panic(serverConf.TlsCert + serverConf.TlsKey + err.Error())
+						return
+					}
+					tlsConn := tls.Server(conn, tlsConfig)
+					handleControl(tlsConn)
+				} else if mType == msg.TypePipeClientHello {
+					handlePipe(conn, body.(*msg.PipeClientHello))
+				} else {
+					log.WithFields(log.Fields{"msgType": mType, "body": body}).Errorln("read handshake msg invalid type!")
+				}
+			}()
 		} else {
 			panic(err)
 		}
@@ -59,7 +60,6 @@ func main() {
 }
 
 func handleControl(conn net.Conn) {
-
 	ctl := NewControl(conn)
 	defer ctl.Close()
 
@@ -74,10 +74,10 @@ func handleControl(conn net.Conn) {
 	ctl.Serve()
 }
 
-func handlePipe(conn net.Conn) {
-	err := PipeHandShake(conn)
+func handlePipe(conn net.Conn, phs *msg.PipeClientHello) {
+	err := PipeHandShake(conn, phs)
 	if err != nil {
 		conn.Close()
-		panic(err)
+		log.WithFields(log.Fields{"err": err}).Warningln("pipe handshake failed!")
 	}
 }

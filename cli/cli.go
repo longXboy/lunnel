@@ -2,15 +2,18 @@ package main
 
 import (
 	"Lunnel/kcp"
+	"Lunnel/msg"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
+	rawLog "log"
 	"net"
+	"time"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/klauspost/compress/snappy"
 	"github.com/pkg/errors"
 )
@@ -41,7 +44,6 @@ func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 }
 
 func CreateConn(addr string, noComp bool) (net.Conn, error) {
-	fmt.Println("open conn:", addr)
 	kcpconn, err := kcp.Dial(addr)
 	if err != nil {
 		return nil, errors.Wrap(err, "kcp dial")
@@ -50,39 +52,58 @@ func CreateConn(addr string, noComp bool) (net.Conn, error) {
 }
 
 func main() {
-	configFile := flag.String("config", "", "path of config file")
+	configFile := flag.String("config", "../assets/client/config.json", "path of config file")
 	flag.Parse()
 	err := LoadConfig(*configFile)
 	if err != nil {
-		log.Fatalf("load config failed!err:=%v", err)
+		rawLog.Fatalf("load config failed!err:=%v", err)
 	}
 	InitLog()
 
-	conn, err := CreateConn(cliConf.ControlAddr, true)
-	if err != nil {
-		panic(err)
-	}
-
 	tlsConfig, err := LoadTLSConfig([]string{cliConf.TrustedCert})
 	if err != nil {
-		panic(err.Error() + cliConf.TrustedCert)
+		log.WithFields(log.Fields{"trusted cert": cliConf.TrustedCert, "err": err}).Fatalln("load tls trusted cert failed!")
+		return
 	}
 	tlsConfig.ServerName = cliConf.ServerDomain
-	tlsConn := tls.Client(conn, tlsConfig)
 
-	ctl := NewControl(tlsConn)
-	defer ctl.Close()
+	for {
+		log.WithFields(log.Fields{"addr": cliConf.ControlAddr}).Infoln("creating control conn to server")
+		conn, err := CreateConn(cliConf.ControlAddr, true)
+		if err != nil {
+			log.WithFields(log.Fields{"server address": cliConf.ControlAddr, "err": err}).Warnln("create ControlAddr conn failed!")
+			time.Sleep(time.Duration(int64(time.Second) * cliConf.ConnRetryGap))
+			continue
+		}
+		var chello msg.ControlClientHello
+		chello.EncryptMode = "tls"
+		err = msg.WriteMsg(conn, msg.TypeControlClientHello, chello)
+		if err != nil {
+			conn.Close()
+			log.WithFields(log.Fields{"server address": cliConf.ControlAddr, "err": err}).Warnln("write ControlClientHello failed!")
+			time.Sleep(time.Duration(int64(time.Second) * cliConf.ConnRetryGap))
+			continue
+		}
 
-	err = ctl.ClientHandShake()
-	if err != nil {
-		panic(errors.Wrap(err, "control.ClientHandShake"))
+		tlsConn := tls.Client(conn, tlsConfig)
+		ctl := NewControl(tlsConn)
+		err = ctl.ClientHandShake()
+		if err != nil {
+			conn.Close()
+			log.WithFields(log.Fields{"err": err}).Warnln("control.ClientHandShake failed!")
+			time.Sleep(time.Duration(int64(time.Second) * cliConf.ConnRetryGap))
+			continue
+		}
+		err = ctl.ClientSyncTunnels()
+		if err != nil {
+			conn.Close()
+			log.WithFields(log.Fields{"err": err}).Warnln("control.ClientSyncTunnels failed!")
+			time.Sleep(time.Duration(int64(time.Second) * cliConf.ConnRetryGap))
+			continue
+		}
+		ctl.Run()
+		time.Sleep(time.Duration(int64(time.Second) * cliConf.ConnRetryGap))
 	}
-	err = ctl.ClientSyncTunnels()
-	if err != nil {
-		panic(errors.Wrap(err, "ctl.ClientSyncTunnels"))
-	}
-	ctl.Run()
-
 }
 
 type compStream struct {

@@ -4,10 +4,10 @@ import (
 	"Lunnel/msg"
 	"encoding/json"
 	"io/ioutil"
-	"log"
+	rawLog "log"
 	"os"
 
-	"github.com/Sirupsen/logrus"
+	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 )
 
@@ -26,8 +26,9 @@ type Config struct {
 	//aes:means exchange premaster key in aes mode
 	//tls:means exchange premaster key in tls mode
 	//default value is tls
-	EncryptMode string
-	Tunnels     []msg.Tunnel
+	EncryptMode  string
+	Tunnels      []msg.Tunnel
+	ConnRetryGap int64
 }
 
 var cliConf Config
@@ -64,6 +65,9 @@ func LoadConfig(configFile string) error {
 			}
 		}
 	}
+	if cliConf.ConnRetryGap == 0 {
+		cliConf.ConnRetryGap = 3
+	}
 	if cliConf.Tunnels == nil || len(cliConf.Tunnels) == 0 {
 		return errors.Errorf("you must specify at least one tunnel")
 	}
@@ -72,20 +76,20 @@ func LoadConfig(configFile string) error {
 
 func InitLog() {
 	if cliConf.Prod {
-		logrus.SetLevel(logrus.WarnLevel)
+		log.SetLevel(log.WarnLevel)
 	} else {
-		logrus.SetLevel(logrus.DebugLevel)
+		log.SetLevel(log.DebugLevel)
 	}
 	if cliConf.LogFile != "" {
 		f, err := os.OpenFile(cliConf.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
 		if err != nil {
-			log.Fatalf("open log file failed!err:=%v\n", err)
+			rawLog.Fatalf("open log file failed!err:=%v\n", err)
 			return
 		}
-		logrus.SetOutput(f)
-		logrus.SetFormatter(&logrus.JSONFormatter{})
+		log.SetOutput(f)
+		log.SetFormatter(&log.JSONFormatter{})
 	} else {
-		logrus.SetOutput(os.Stdout)
-		logrus.SetFormatter(&logrus.TextFormatter{})
+		log.SetOutput(os.Stdout)
+		log.SetFormatter(&log.TextFormatter{})
 	}
 }
