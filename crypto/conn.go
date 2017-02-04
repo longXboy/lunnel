@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"net"
+	"time"
 )
 
 var initialVector = []byte{55, 33, 111, 156, 18, 172, 34, 2, 164, 99, 252, 122, 252, 133, 12, 55}
@@ -48,6 +49,24 @@ func (c *cryptoConn) Write(b []byte) (n int, err error) {
 
 func (c *cryptoConn) Close() error {
 	return c.rawConn.Close()
+}
+
+func (c *cryptoConn) RemoteAddr() net.Addr {
+	return c.rawConn.RemoteAddr()
+}
+
+func (c *cryptoConn) LocalAddr() net.Addr {
+	return c.rawConn.LocalAddr()
+}
+
+func (c *cryptoConn) SetDeadline(t time.Time) error {
+	return c.rawConn.SetDeadline(t)
+}
+func (c *cryptoConn) SetReadDeadline(t time.Time) error {
+	return c.rawConn.SetWriteDeadline(t)
+}
+func (c *cryptoConn) SetWriteDeadline(t time.Time) error {
+	return c.rawConn.SetWriteDeadline(t)
 }
 
 func (c *cryptoConn) encrypt(dst, src []byte) {

@@ -14,14 +14,15 @@ import (
 )
 
 var pingInterval time.Duration = time.Second * 8
-var pingTimeout time.Duration = time.Second * 13
+var pingTimeout time.Duration = time.Second * 15
 
-func NewControl(conn net.Conn) *Control {
+func NewControl(conn net.Conn, encryptMode string) *Control {
 	ctl := &Control{
-		ctlConn:   conn,
-		die:       make(chan struct{}),
-		toDie:     make(chan struct{}),
-		writeChan: make(chan writeReq, 128),
+		ctlConn:     conn,
+		die:         make(chan struct{}),
+		toDie:       make(chan struct{}),
+		writeChan:   make(chan writeReq, 128),
+		encryptMode: encryptMode,
 	}
 	ctl.tunnels = cliConf.Tunnels
 	return ctl
@@ -37,6 +38,7 @@ type Control struct {
 	tunnels         []msg.Tunnel
 	preMasterSecret []byte
 	lastRead        uint64
+	encryptMode     string
 
 	die       chan struct{}
 	toDie     chan struct{}
@@ -71,9 +73,9 @@ func (c *Control) moderator() {
 
 func (c *Control) createPipe() {
 	log.WithField("time", time.Now().Unix()).Infoln("create pipe!")
-	pipeConn, err := CreateConn(cliConf.ControlAddr, true)
+	pipeConn, err := CreateConn(cliConf.ServerAddr, true)
 	if err != nil {
-		log.WithFields(log.Fields{"addr": cliConf.ControlAddr, "err": err}).Errorln("creating tunnel conn to server failed!")
+		log.WithFields(log.Fields{"addr": cliConf.ServerAddr, "err": err}).Errorln("creating tunnel conn to server failed!")
 		return
 	}
 	defer pipeConn.Close()
@@ -217,29 +219,30 @@ func (c *Control) Run() {
 }
 
 func (c *Control) ClientHandShake() error {
-	priv, keyMsg := crypto.GenerateKeyExChange()
-	if keyMsg == nil || priv == nil {
-		return errors.Errorf("GenerateKeyExChange error,key is nil")
-	}
-	var ckem msg.CipherKeyExchange
-	ckem.CipherKey = keyMsg
-	err := msg.WriteMsg(c.ctlConn, msg.TypeClientKeyExchange, ckem)
-	if err != nil {
-		return errors.Wrap(err, "WriteMsg ckem")
+	if c.encryptMode != "none" {
+		priv, keyMsg := crypto.GenerateKeyExChange()
+		if keyMsg == nil || priv == nil {
+			return errors.Errorf("GenerateKeyExChange error,key is nil")
+		}
+		var ckem msg.CipherKeyExchange
+		ckem.CipherKey = keyMsg
+		err := msg.WriteMsg(c.ctlConn, msg.TypeClientKeyExchange, ckem)
+		if err != nil {
+			return errors.Wrap(err, "WriteMsg ckem")
+		}
+		_, body, err := msg.ReadMsg(c.ctlConn)
+		if err != nil {
+			return errors.Wrap(err, "read skem")
+		}
+		var preMasterSecret []byte
+		skem := body.(*msg.CipherKeyExchange)
+		preMasterSecret, err = crypto.ProcessKeyExchange(priv, skem.CipherKey)
+		if err != nil {
+			return errors.Wrap(err, "crypto.ProcessKeyExchange")
+		}
+		c.preMasterSecret = preMasterSecret
 	}
 	_, body, err := msg.ReadMsg(c.ctlConn)
-	if err != nil {
-		return errors.Wrap(err, "read skem")
-	}
-	var preMasterSecret []byte
-	skem := body.(*msg.CipherKeyExchange)
-	preMasterSecret, err = crypto.ProcessKeyExchange(priv, skem.CipherKey)
-	if err != nil {
-		return errors.Wrap(err, "crypto.ProcessKeyExchange")
-	}
-	c.preMasterSecret = preMasterSecret
-
-	_, body, err = msg.ReadMsg(c.ctlConn)
 	if err != nil {
 		return errors.Wrap(err, "read ClientID")
 	}
@@ -258,18 +261,28 @@ func (c *Control) pipeHandShake(conn net.Conn) (*smux.Session, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "write pipe handshake")
 	}
-	prf := crypto.NewPrf12()
-	var masterKey []byte = make([]byte, 16)
-	prf(masterKey, c.preMasterSecret, c.ClientID[:], phs.Once[:])
-	cryptoConn, err := crypto.NewCryptoConn(conn, masterKey)
-	if err != nil {
-		return nil, errors.Wrap(err, "crypto.NewCryptoConn")
-	}
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.MaxReceiveBuffer = 4194304
-	mux, err := smux.Server(cryptoConn, smuxConfig)
-	if err != nil {
-		return nil, errors.Wrap(err, "smux.Server")
+	var mux *smux.Session
+	if c.encryptMode != "none" {
+		prf := crypto.NewPrf12()
+		var masterKey []byte = make([]byte, 16)
+		prf(masterKey, c.preMasterSecret, c.ClientID[:], phs.Once[:])
+		cryptoConn, err := crypto.NewCryptoConn(conn, masterKey)
+		if err != nil {
+			return nil, errors.Wrap(err, "crypto.NewCryptoConn")
+		}
+
+		mux, err = smux.Server(cryptoConn, smuxConfig)
+		if err != nil {
+			return nil, errors.Wrap(err, "smux.Server")
+		}
+	} else {
+		mux, err = smux.Server(conn, smuxConfig)
+		if err != nil {
+			return nil, errors.Wrap(err, "smux.Server")
+		}
 	}
+
 	return mux, nil
 }

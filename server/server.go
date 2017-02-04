@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Lunnel/crypto"
 	"Lunnel/kcp"
 	"Lunnel/msg"
 	"crypto/tls"
@@ -36,17 +37,8 @@ func main() {
 					return
 				}
 				if mType == msg.TypeControlClientHello {
-					var err error
-					tlsConfig := &tls.Config{}
-					tlsConfig.Certificates = make([]tls.Certificate, 1)
-					tlsConfig.Certificates[0], err = tls.LoadX509KeyPair(serverConf.TlsCert, serverConf.TlsKey)
-					if err != nil {
-						conn.Close()
-						panic(serverConf.TlsCert + serverConf.TlsKey + err.Error())
-						return
-					}
-					tlsConn := tls.Server(conn, tlsConfig)
-					handleControl(tlsConn)
+					log.WithFields(log.Fields{"encrypt_mode": body.(*msg.ControlClientHello).EncryptMode}).Infoln("new client hello")
+					handleControl(conn, body.(*msg.ControlClientHello))
 				} else if mType == msg.TypePipeClientHello {
 					handlePipe(conn, body.(*msg.PipeClientHello))
 				} else {
@@ -59,16 +51,44 @@ func main() {
 	}
 }
 
-func handleControl(conn net.Conn) {
-	ctl := NewControl(conn)
-	defer ctl.Close()
+func handleControl(conn net.Conn, cch *msg.ControlClientHello) {
+	var err error
+	var ctl *Control
+	if cch.EncryptMode == "tls" {
+		tlsConfig := &tls.Config{}
+		tlsConfig.Certificates = make([]tls.Certificate, 1)
+		tlsConfig.Certificates[0], err = tls.LoadX509KeyPair(serverConf.TlsCert, serverConf.TlsKey)
+		if err != nil {
+			conn.Close()
+			log.WithFields(log.Fields{"cert": serverConf.TlsCert, "private_key": serverConf.TlsKey, "err": err}).Errorln("client hello,load LoadX509KeyPair failed!")
+			return
+		}
+		tlsConn := tls.Server(conn, tlsConfig)
+		ctl = NewControl(tlsConn, cch.EncryptMode)
+	} else if cch.EncryptMode == "aes" {
+		cryptoConn, err := crypto.NewCryptoConn(conn, []byte(serverConf.SecretKey))
+		if err != nil {
+			conn.Close()
+			log.WithFields(log.Fields{"err": err}).Errorln("client hello,crypto.NewCryptoConn failed!")
+			return
+		}
+		ctl = NewControl(cryptoConn, cch.EncryptMode)
+	} else if cch.EncryptMode == "none" {
+		ctl = NewControl(conn, cch.EncryptMode)
+	} else {
+		conn.Close()
+		log.WithFields(log.Fields{"encrypt_mode": cch.EncryptMode, "err": "invalid EncryptMode"}).Errorln("client hello failed!")
+		return
+	}
 
-	err := ctl.ServerHandShake()
+	err = ctl.ServerHandShake()
 	if err != nil {
+		conn.Close()
 		panic(errors.Wrap(err, "ctl.ServerHandShake"))
 	}
 	err = ctl.ServerSyncTunnels(serverConf.ServerDomain)
 	if err != nil {
+		conn.Close()
 		panic(errors.Wrap(err, "ctl.ServerSyncTunnels"))
 	}
 	ctl.Serve()

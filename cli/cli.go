@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Lunnel/crypto"
 	"Lunnel/kcp"
 	"Lunnel/msg"
 	"crypto/tls"
@@ -26,17 +27,14 @@ func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 		if err != nil {
 			return nil, err
 		}
-
 		pemBlock, _ := pem.Decode(rootCrt)
 		if pemBlock == nil {
 			return nil, fmt.Errorf("Bad PEM data")
 		}
-
 		certs, err := x509.ParseCertificates(pemBlock.Bytes)
 		if err != nil {
 			return nil, err
 		}
-
 		pool.AddCert(certs[0])
 	}
 
@@ -60,33 +58,48 @@ func main() {
 	}
 	InitLog()
 
-	tlsConfig, err := LoadTLSConfig([]string{cliConf.TrustedCert})
-	if err != nil {
-		log.WithFields(log.Fields{"trusted cert": cliConf.TrustedCert, "err": err}).Fatalln("load tls trusted cert failed!")
-		return
-	}
-	tlsConfig.ServerName = cliConf.ServerDomain
-
 	for {
-		log.WithFields(log.Fields{"addr": cliConf.ControlAddr}).Infoln("creating control conn to server")
-		conn, err := CreateConn(cliConf.ControlAddr, true)
+		log.WithFields(log.Fields{"addr": cliConf.ServerAddr}).Infoln("creating control conn to server")
+		conn, err := CreateConn(cliConf.ServerAddr, true)
 		if err != nil {
-			log.WithFields(log.Fields{"server address": cliConf.ControlAddr, "err": err}).Warnln("create ControlAddr conn failed!")
+			log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("create ControlAddr conn failed!")
 			time.Sleep(time.Duration(int64(time.Second) * cliConf.ConnRetryGap))
 			continue
 		}
 		var chello msg.ControlClientHello
-		chello.EncryptMode = "tls"
+		chello.EncryptMode = cliConf.EncryptMode
 		err = msg.WriteMsg(conn, msg.TypeControlClientHello, chello)
 		if err != nil {
 			conn.Close()
-			log.WithFields(log.Fields{"server address": cliConf.ControlAddr, "err": err}).Warnln("write ControlClientHello failed!")
+			log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("write ControlClientHello failed!")
 			time.Sleep(time.Duration(int64(time.Second) * cliConf.ConnRetryGap))
 			continue
 		}
-
-		tlsConn := tls.Client(conn, tlsConfig)
-		ctl := NewControl(tlsConn)
+		var ctl *Control
+		if cliConf.EncryptMode == "tls" {
+			tlsConfig, err := LoadTLSConfig([]string{cliConf.TrustedCert})
+			if err != nil {
+				log.WithFields(log.Fields{"trusted cert": cliConf.TrustedCert, "err": err}).Fatalln("load tls trusted cert failed!")
+				return
+			}
+			tlsConfig.ServerName = cliConf.ServerName
+			tlsConn := tls.Client(conn, tlsConfig)
+			ctl = NewControl(tlsConn, cliConf.EncryptMode)
+		} else if cliConf.EncryptMode == "aes" {
+			cryptoConn, err := crypto.NewCryptoConn(conn, []byte(cliConf.SecretKey))
+			if err != nil {
+				conn.Close()
+				log.WithFields(log.Fields{"err": err}).Errorln("client hello,crypto.NewCryptoConn failed!")
+				return
+			}
+			ctl = NewControl(cryptoConn, cliConf.EncryptMode)
+		} else if cliConf.EncryptMode == "none" {
+			ctl = NewControl(conn, cliConf.EncryptMode)
+		} else {
+			conn.Close()
+			log.WithFields(log.Fields{"encrypt_mode": cliConf.EncryptMode, "err": "invalid EncryptMode"}).Errorln("client hello failed!")
+			return
+		}
 		err = ctl.ClientHandShake()
 		if err != nil {
 			conn.Close()

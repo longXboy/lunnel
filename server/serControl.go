@@ -19,20 +19,21 @@ var maxIdlePipes int = 3
 var maxStreams int = 6
 
 var pingInterval time.Duration = time.Second * 8
-var pingTimeout time.Duration = time.Second * 13
+var pingTimeout time.Duration = time.Second * 15
 var cleanInterval time.Duration = time.Second * 5
 
 var ControlMapLock sync.RWMutex
 var ControlMap = make(map[crypto.UUID]*Control)
 
-func NewControl(conn net.Conn) *Control {
+func NewControl(conn net.Conn, encryptMode string) *Control {
 	ctl := &Control{
-		ctlConn:   conn,
-		pipeGet:   make(chan *smux.Session),
-		pipeAdd:   make(chan *smux.Session),
-		die:       make(chan struct{}),
-		toDie:     make(chan struct{}),
-		writeChan: make(chan writeReq, 128),
+		ctlConn:     conn,
+		pipeGet:     make(chan *smux.Session),
+		pipeAdd:     make(chan *smux.Session),
+		die:         make(chan struct{}),
+		toDie:       make(chan struct{}),
+		writeChan:   make(chan writeReq, 128),
+		encryptMode: encryptMode,
 	}
 
 	return ctl
@@ -59,6 +60,7 @@ type Control struct {
 	tunnels         []Tunnel
 	preMasterSecret []byte
 	lastRead        uint64
+	encryptMode     string
 
 	busyPipes *pipeNode
 	idleCount int
@@ -241,6 +243,7 @@ func (c *Control) pipeManage() {
 		case <-ticker.C:
 			c.clean()
 		case c.pipeGet <- available:
+			log.WithFields(log.Fields{"pipe": fmt.Sprintf("%p", available)}).Infoln("dispatch pipe to consumer")
 			available = nil
 		case p := <-c.pipeAdd:
 			if !p.IsClosed() {
@@ -453,30 +456,35 @@ func (c *Control) GenerateClientId() crypto.UUID {
 }
 
 func (c *Control) ServerHandShake() error {
-	_, body, err := msg.ReadMsg(c.ctlConn)
-	if err != nil {
-		return errors.Wrap(err, "msg.ReadMsg")
-	}
-	ckem := body.(*msg.CipherKeyExchange)
-	priv, keyMsg := crypto.GenerateKeyExChange()
-	if keyMsg == nil || priv == nil {
-		return errors.Errorf("crypto.GenerateKeyExChange error ,exchange key is nil")
-	}
-	preMasterSecret, err := crypto.ProcessKeyExchange(priv, ckem.CipherKey)
-	if err != nil {
-		return errors.Wrap(err, "crypto.ProcessKeyExchange")
-	}
-	c.preMasterSecret = preMasterSecret
-	var skem msg.CipherKeyExchange
-	skem.CipherKey = keyMsg
-	err = msg.WriteMsg(c.ctlConn, msg.TypeServerKeyExchange, skem)
-	if err != nil {
-		return errors.Wrap(err, "write ServerKeyExchange msg")
+	if c.encryptMode != "none" {
+		mType, body, err := msg.ReadMsg(c.ctlConn)
+		if err != nil {
+			return errors.Wrap(err, "msg.ReadMsg")
+		}
+		if mType != msg.TypeClientKeyExchange {
+			return errors.Errorf("invalid msg type(%d),expect(%d)", mType, msg.TypeClientKeyExchange)
+		}
+		ckem := body.(*msg.CipherKeyExchange)
+		priv, keyMsg := crypto.GenerateKeyExChange()
+		if keyMsg == nil || priv == nil {
+			return errors.Errorf("crypto.GenerateKeyExChange error ,exchange key is nil")
+		}
+		preMasterSecret, err := crypto.ProcessKeyExchange(priv, ckem.CipherKey)
+		if err != nil {
+			return errors.Wrap(err, "crypto.ProcessKeyExchange")
+		}
+		c.preMasterSecret = preMasterSecret
+		var skem msg.CipherKeyExchange
+		skem.CipherKey = keyMsg
+		err = msg.WriteMsg(c.ctlConn, msg.TypeServerKeyExchange, skem)
+		if err != nil {
+			return errors.Wrap(err, "write ServerKeyExchange msg")
+		}
 	}
 
 	var cidm msg.ClientIDExchange
 	cidm.ClientID = c.GenerateClientId()
-	err = msg.WriteMsg(c.ctlConn, msg.TypeClientID, cidm)
+	err := msg.WriteMsg(c.ctlConn, msg.TypeClientID, cidm)
 	if err != nil {
 		return errors.Wrap(err, "Write ClientId")
 	}
@@ -490,22 +498,29 @@ func PipeHandShake(conn net.Conn, phs *msg.PipeClientHello) error {
 	ControlMapLock.RLock()
 	ctl := ControlMap[phs.ClientID]
 	ControlMapLock.RUnlock()
-
-	prf := crypto.NewPrf12()
-	var masterKey []byte = make([]byte, 16)
-	prf(masterKey, ctl.preMasterSecret, phs.ClientID[:], phs.Once[:])
-	cryptoConn, err := crypto.NewCryptoConn(conn, masterKey)
-	if err != nil {
-		return errors.Wrap(err, "crypto.NewCryptoConn")
-	}
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.MaxReceiveBuffer = 4194304
-	//server endpoint is the pipe connection source,so we use smux.Client
-	sess, err := smux.Client(cryptoConn, smuxConfig)
-	if err != nil {
-		return errors.Wrap(err, "smux.Client")
+	var err error
+	var sess *smux.Session
+	if ctl.encryptMode != "none" {
+		prf := crypto.NewPrf12()
+		var masterKey []byte = make([]byte, 16)
+		prf(masterKey, ctl.preMasterSecret, phs.ClientID[:], phs.Once[:])
+		cryptoConn, err := crypto.NewCryptoConn(conn, masterKey)
+		if err != nil {
+			return errors.Wrap(err, "crypto.NewCryptoConn")
+		}
+		//server endpoint is the pipe connection source,so we use smux.Client
+		sess, err = smux.Client(cryptoConn, smuxConfig)
+		if err != nil {
+			return errors.Wrap(err, "smux.Client")
+		}
+	} else {
+		sess, err = smux.Client(conn, smuxConfig)
+		if err != nil {
+			return errors.Wrap(err, "smux.Client")
+		}
 	}
-
 	ctl.putPipe(sess)
 	return nil
 }

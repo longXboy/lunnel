@@ -2,24 +2,24 @@ package main
 
 import (
 	"Lunnel/msg"
+	"crypto/sha1"
 	"encoding/json"
 	"io/ioutil"
 	rawLog "log"
+	"net"
 	"os"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 type Config struct {
-	Prod        bool
-	LogFile     string
-	ControlAddr string
-	TunnelAddr  string
-	//if TrustedCert is specified,you must supply ServerDomain
-	ServerDomain   string
-	SelfSignedCert bool
-	//trusted root CA cert
+	Prod    bool
+	LogFile string
+	//if EncryptMode is tls and ServerName is empty,ServerAddr can't be IP format
+	ServerAddr  string
+	ServerName  string
 	TrustedCert string
 	SecretKey   string
 	//none:means no encrypt
@@ -44,25 +44,27 @@ func LoadConfig(configFile string) error {
 			return errors.Wrap(err, "unmarshal config file")
 		}
 	}
-	if cliConf.ControlAddr == "" {
-		cliConf.ControlAddr = "lunnel.snakeoil.com:8080"
-	}
-	if cliConf.TunnelAddr == "" {
-		cliConf.TunnelAddr = "lunnel.snakeoil.com:8081"
+	if cliConf.ServerAddr == "" {
+		cliConf.ServerAddr = "lunnel.snakeoil.com:8080"
 	}
 	if cliConf.EncryptMode == "" {
 		cliConf.EncryptMode = "tls"
 	}
-	if cliConf.EncryptMode == "tls" {
-		if cliConf.SelfSignedCert {
-			if cliConf.TrustedCert == "" {
-				cliConf.TrustedCert = "../assets/client/cacert.pem"
-				cliConf.ServerDomain = "lunnel.snakeoil.com"
-			} else {
-				if cliConf.ServerDomain == "" {
-					return errors.Errorf("you must specify ServerDomain while using SelfSignedCert mode")
-				}
-			}
+	if cliConf.EncryptMode == "aes" {
+		if cliConf.SecretKey == "" {
+			cliConf.SecretKey = "defaultpassword"
+		}
+		pass := pbkdf2.Key([]byte(cliConf.SecretKey), []byte("lunnel"), 4096, 32, sha1.New)
+		cliConf.SecretKey = string(pass[:16])
+	}
+	if cliConf.EncryptMode != "tls" && cliConf.EncryptMode != "aes" && cliConf.EncryptMode != "none" {
+		return errors.Errorf("invalid EncryptMode")
+	}
+	if cliConf.EncryptMode == "tls" && cliConf.ServerName == "" {
+		var err error
+		cliConf.ServerName, err = resovleServerName(cliConf.ServerAddr)
+		if err != nil {
+			return errors.Wrap(err, "resovleServerName")
 		}
 	}
 	if cliConf.ConnRetryGap == 0 {
@@ -72,6 +74,17 @@ func LoadConfig(configFile string) error {
 		return errors.Errorf("you must specify at least one tunnel")
 	}
 	return nil
+}
+
+func resovleServerName(addr string) (string, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", errors.Wrap(err, "net.SplitHostPort")
+	}
+	if net.ParseIP(host) != nil {
+		return "", errors.Errorf("ServerAddress can't be ip format")
+	}
+	return host, nil
 }
 
 func InitLog() {

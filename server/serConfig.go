@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha1"
 	"encoding/json"
 	"io/ioutil"
 	rawLog "log"
@@ -8,13 +9,13 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 type Config struct {
 	Prod         bool
 	LogFile      string
 	ControlAddr  string
-	TunnelAddr   string
 	ServerDomain string
 	TlsCert      string
 	TlsKey       string
@@ -42,9 +43,6 @@ func LoadConfig(configFile string) error {
 	if serverConf.ControlAddr == "" {
 		serverConf.ControlAddr = "0.0.0.0:8080"
 	}
-	if serverConf.TunnelAddr == "" {
-		serverConf.TunnelAddr = "0.0.0.0:8081"
-	}
 	if serverConf.ServerDomain == "" {
 		serverConf.ServerDomain = "lunnel.snakeoil.com"
 	}
@@ -62,6 +60,8 @@ func LoadConfig(configFile string) error {
 		if serverConf.SecretKey == "" {
 			serverConf.SecretKey = "defaultpassword"
 		}
+		pass := pbkdf2.Key([]byte(serverConf.SecretKey), []byte("lunnel"), 4096, 32, sha1.New)
+		serverConf.SecretKey = string(pass[:16])
 	} else if serverConf.EncryptMode != "none" {
 		return errors.Errorf("load config failed!err:=unsupported enrypt mode(%s)", serverConf.EncryptMode)
 	}
