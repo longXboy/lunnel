@@ -97,12 +97,7 @@ func readMsg(r net.Conn, timeout time.Duration) (MsgType, interface{}, error) {
 	if err != nil {
 		return 0, nil, errors.Wrap(err, "msg readInSize header")
 	}
-	length := int(header[1])<<16 | int(header[2])<<8 | int(header[3])
-	body := make([]byte, length)
-	err = readInSize(r, body, timeout)
-	if err != nil {
-		return 0, nil, errors.Wrap(err, "msg readInSize body")
-	}
+
 	var out interface{}
 	if MsgType(header[0]) == TypeClientKeyExchange || MsgType(header[0]) == TypeServerKeyExchange {
 		out = new(CipherKeyExchange)
@@ -119,9 +114,17 @@ func readMsg(r net.Conn, timeout time.Duration) (MsgType, interface{}, error) {
 	} else {
 		return 0, nil, errors.Errorf("invalid msg type %d", header[0])
 	}
-	err = json.Unmarshal(body, out)
-	if err != nil {
-		return 0, nil, errors.Wrapf(err, "json unmarshal %d", header[0])
+	length := int(header[1])<<16 | int(header[2])<<8 | int(header[3])
+	if length > 0 {
+		body := make([]byte, length)
+		err = readInSize(r, body, timeout)
+		if err != nil {
+			return 0, nil, errors.Wrap(err, "msg readInSize body")
+		}
+		err = json.Unmarshal(body, out)
+		if err != nil {
+			return 0, nil, errors.Wrapf(err, "json unmarshal %d", header[0])
+		}
 	}
 	return MsgType(header[0]), out, nil
 }

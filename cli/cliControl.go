@@ -157,6 +157,7 @@ func (c *Control) recvLoop() {
 			c.Close()
 			return
 		}
+		log.WithFields(log.Fields{"mType": mType}).Infoln("recv msg from server")
 		atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 		switch mType {
 		case msg.TypePong:

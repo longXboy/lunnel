@@ -198,7 +198,6 @@ func (c *Control) pipeManage() {
 	for {
 	Prepare:
 		if available == nil || available.IsClosed() {
-			log.WithField("available", fmt.Sprintf("%p", available)).Info("get ava!")
 			available = nil
 			idle := c.getIdleFast()
 			if idle == nil {
@@ -347,6 +346,7 @@ func (c *Control) writeLoop() {
 				idx++
 			}
 			lastWrite = time.Now()
+			log.WithFields(log.Fields{"mType": msgBody.mType, "body": fmt.Sprintf("%v", msgBody.body)}).Infoln("send msg to client")
 			err := msg.WriteMsg(c.ctlConn, msgBody.mType, msgBody.body)
 			if err != nil {
 				c.Close()
