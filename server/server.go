@@ -4,8 +4,10 @@ import (
 	"Lunnel/crypto"
 	"Lunnel/kcp"
 	"Lunnel/msg"
+	"Lunnel/vhost"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	rawLog "log"
 	"net"
 
@@ -14,6 +16,9 @@ import (
 )
 
 func main() {
+	go serveHttp("0.0.0.0:80")
+	go serveHttps("0.0.0.0:443")
+
 	configFile := flag.String("config", "../assets/server/config.json", "path of config file")
 	flag.Parse()
 	err := LoadConfig(*configFile)
@@ -48,6 +53,66 @@ func main() {
 		} else {
 			panic(err)
 		}
+	}
+}
+
+func serveHttps(addr string) {
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.WithFields(log.Fields{"addr": addr, "err": err}).Fatalln("listen http failed!")
+	}
+	for {
+		conn, err := lis.Accept()
+		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Errorln("accept http conn failed!")
+			continue
+		}
+		go func() {
+			defer conn.Close()
+			sconn, info, err := vhost.GetHttpsHostname(conn)
+			if err != nil {
+				log.WithFields(log.Fields{"err": err}).Errorln("vhost.GetHttpRequestInfo failed!")
+				return
+			}
+			fmt.Println(info)
+			var b []byte = make([]byte, 4096)
+			nRead, err := sconn.Read(b)
+			if err != nil {
+				log.WithFields(log.Fields{"err": err}).Errorln("sconn.Read failed!")
+				return
+			}
+			fmt.Println(string(b[:nRead]))
+		}()
+	}
+}
+
+func serveHttp(addr string) {
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.WithFields(log.Fields{"addr": addr, "err": err}).Fatalln("listen http failed!")
+	}
+	for {
+		conn, err := lis.Accept()
+		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Errorln("accept http conn failed!")
+			continue
+		}
+		go func() {
+			defer conn.Close()
+			sconn, info, err := vhost.GetHttpRequestInfo(conn)
+			if err != nil {
+				log.WithFields(log.Fields{"err": err}).Errorln("vhost.GetHttpRequestInfo failed!")
+				return
+			}
+			fmt.Println(info)
+			var b []byte = make([]byte, 4096)
+			nRead, err := sconn.Read(b)
+			if err != nil {
+				log.WithFields(log.Fields{"err": err}).Errorln("sconn.Read failed!")
+				return
+			}
+			fmt.Println(string(b[:nRead]))
+		}()
 	}
 }
 
