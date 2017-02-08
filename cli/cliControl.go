@@ -3,6 +3,7 @@ package main
 import (
 	"Lunnel/crypto"
 	"Lunnel/msg"
+	"Lunnel/util"
 	"io"
 	"net"
 	"sync/atomic"
@@ -102,10 +103,17 @@ func (c *Control) createPipe() {
 		}
 		go func() {
 			defer stream.Close()
-
-			conn, err := net.Dial("tcp", stream.Tunnel())
+			schema, addr, err := util.SplitAddr(stream.TunnelLocalAddr())
 			if err != nil {
-				log.WithFields(log.Fields{"err": err, "local": stream.Tunnel()}).Warningln("pipe dial local failed!")
+				log.WithFields(log.Fields{"err": err, "localaddr": stream.TunnelLocalAddr()}).Errorln("Split stream's local address failed!")
+				return
+			}
+			var conn net.Conn
+			if schema == "tcp" || schema == "http" || schema == "https" {
+				conn, err = net.Dial("tcp", addr)
+			}
+			if err != nil {
+				log.WithFields(log.Fields{"err": err, "local": stream.TunnelLocalAddr()}).Warningln("pipe dial local failed!")
 				return
 			}
 			defer conn.Close()

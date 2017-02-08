@@ -3,6 +3,7 @@ package main
 import (
 	"Lunnel/crypto"
 	"Lunnel/msg"
+	"Lunnel/util"
 	"fmt"
 	"io"
 	"net"
@@ -25,6 +26,14 @@ var cleanInterval time.Duration = time.Second * 5
 var ControlMapLock sync.RWMutex
 var ControlMap = make(map[crypto.UUID]*Control)
 
+var subDomainIdx uint64
+
+var HttpMapLock sync.RWMutex
+var HttpMap = make(map[string]*Tunnel)
+
+var HttpsMapLock sync.RWMutex
+var HttpsMap = make(map[string]*Tunnel)
+
 func NewControl(conn net.Conn, encryptMode string) *Control {
 	ctl := &Control{
 		ctlConn:     conn,
@@ -35,7 +44,6 @@ func NewControl(conn net.Conn, encryptMode string) *Control {
 		writeChan:   make(chan writeReq, 128),
 		encryptMode: encryptMode,
 	}
-
 	return ctl
 }
 
@@ -47,6 +55,7 @@ type writeReq struct {
 type Tunnel struct {
 	tunnelInfo msg.Tunnel
 	listener   net.Listener
+	ctl        *Control
 }
 
 type pipeNode struct {
@@ -57,7 +66,7 @@ type pipeNode struct {
 
 type Control struct {
 	ctlConn         net.Conn
-	tunnels         []Tunnel
+	tunnels         []*Tunnel
 	preMasterSecret []byte
 	lastRead        uint64
 	encryptMode     string
@@ -281,7 +290,29 @@ func (c *Control) moderator() {
 	log.WithFields(log.Fields{"ClientId": c.ClientID}).Infoln("client going to close")
 	close(c.die)
 	for _, t := range c.tunnels {
-		t.listener.Close()
+		if t.listener != nil {
+			t.listener.Close()
+		} else {
+			schema, remote, err := util.SplitAddr(t.tunnelInfo.RemoteAddress)
+			if err != nil {
+				log.WithFields(log.Fields{"remoteAddr": t.tunnelInfo.RemoteAddress, "err": err}).Errorln("split RemoteAddress failed!")
+			}
+			if schema == "http" || schema == "https" {
+				host, _, err := net.SplitHostPort(remote)
+				if err != nil {
+					log.WithFields(log.Fields{"remote": remote, "err": err}).Errorln("split Remote to host port failed!")
+				}
+				if schema == "http" {
+					HttpMapLock.Lock()
+					delete(HttpMap, host)
+					HttpMapLock.Unlock()
+				} else {
+					HttpsMapLock.Lock()
+					delete(HttpsMap, host)
+					HttpsMapLock.Unlock()
+				}
+			}
+		}
 	}
 	idle := c.idlePipes
 	for {
@@ -384,7 +415,36 @@ func (c *Control) Serve() {
 			return
 		}
 	}
+}
 
+func proxyConn(userConn net.Conn, c *Control, tunnelLocalAddr string) {
+	defer userConn.Close()
+	p := c.getPipe()
+	if p == nil {
+		return
+	}
+	stream, err := p.OpenStream(tunnelLocalAddr)
+	if err != nil {
+		c.putPipe(p)
+		return
+	}
+	defer stream.Close()
+	c.putPipe(p)
+	p1die := make(chan struct{})
+	p2die := make(chan struct{})
+	go func() {
+		io.Copy(stream, userConn)
+		close(p1die)
+	}()
+	go func() {
+		io.Copy(userConn, stream)
+		close(p2die)
+	}()
+	select {
+	case <-p1die:
+	case <-p2die:
+	}
+	return
 }
 
 func (c *Control) ServerSyncTunnels(serverDomain string) error {
@@ -395,53 +455,52 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 	sstm := body.(*msg.SyncTunnels)
 	for i := range sstm.Tunnels {
 		t := &sstm.Tunnels[i]
-		lis, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
+		schema, _, err := util.SplitAddr(t.LocalAddress)
 		if err != nil {
-			return errors.Wrap(err, "binding TCP listener")
+			return errors.Wrap(err, "util.SplitAddr")
 		}
-		go func() {
-			for {
-				if c.IsClosed() {
-					return
-				}
-				conn, err := lis.Accept()
-				if err != nil {
-					return
-				}
-				go func() {
-					defer conn.Close()
-					p := c.getPipe()
-					if p == nil {
-						return
-					}
-					stream, err := p.OpenStream(t.LocalAddress)
-					if err != nil {
-						c.putPipe(p)
-						return
-					}
-					defer stream.Close()
-					c.putPipe(p)
-					p1die := make(chan struct{})
-					p2die := make(chan struct{})
-					go func() {
-						io.Copy(stream, conn)
-						close(p1die)
-					}()
-					go func() {
-						io.Copy(conn, stream)
-						close(p2die)
-					}()
-					select {
-					case <-p1die:
-					case <-p2die:
-					}
-					return
-				}()
+		var lis net.Listener
+		if schema == "tcp" || schema == "unix" {
+			lis, err = net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
+			if err != nil {
+				return errors.Wrap(err, "binding TCP listener")
 			}
-		}()
-		addr := lis.Addr().(*net.TCPAddr)
-		t.RemoteAddress = fmt.Sprintf("%s:%d", serverDomain, addr.Port)
-		c.tunnels = append(c.tunnels, Tunnel{*t, lis})
+			addr := lis.Addr().(*net.TCPAddr)
+			t.RemoteAddress = fmt.Sprintf("%s://%s:%d", schema, serverDomain, addr.Port)
+			tunnel := Tunnel{*t, lis, c}
+			c.tunnels = append(c.tunnels, &tunnel)
+			go func() {
+				for {
+					if c.IsClosed() {
+						return
+					}
+					conn, err := lis.Accept()
+					if err != nil {
+						return
+					}
+					go proxyConn(conn, c, t.LocalAddress)
+				}
+			}()
+		} else if schema == "http" || schema == "https" {
+			subDomain := util.Int2Short(atomic.AddUint64(&subDomainIdx, 1))
+			httpAddr := fmt.Sprintf("%s.%s", subDomain, serverConf.ServerDomain)
+			if schema == "http" {
+				t.RemoteAddress = fmt.Sprintf("%s://%s:%d", schema, httpAddr, serverConf.HttpPort)
+				tunnel := Tunnel{*t, nil, c}
+				c.tunnels = append(c.tunnels, &tunnel)
+				HttpMapLock.Lock()
+				HttpMap[httpAddr] = &tunnel
+				HttpMapLock.Unlock()
+			} else {
+				t.RemoteAddress = fmt.Sprintf("%s://%s:%d", schema, httpAddr, serverConf.HttpsPort)
+				tunnel := Tunnel{*t, nil, c}
+				c.tunnels = append(c.tunnels, &tunnel)
+				HttpsMapLock.Lock()
+				HttpsMap[httpAddr] = &tunnel
+				HttpsMapLock.Unlock()
+			}
+
+		}
 	}
 	err = msg.WriteMsg(c.ctlConn, msg.TypeSyncTunnels, *sstm)
 	if err != nil {

@@ -98,20 +98,22 @@ func serveHttp(addr string) {
 			continue
 		}
 		go func() {
-			defer conn.Close()
 			sconn, info, err := vhost.GetHttpRequestInfo(conn)
 			if err != nil {
+				conn.Close()
 				log.WithFields(log.Fields{"err": err}).Errorln("vhost.GetHttpRequestInfo failed!")
 				return
 			}
-			fmt.Println(info)
-			var b []byte = make([]byte, 4096)
-			nRead, err := sconn.Read(b)
-			if err != nil {
-				log.WithFields(log.Fields{"err": err}).Errorln("sconn.Read failed!")
+			fmt.Println(info["Host"])
+			HttpMapLock.RLock()
+			tunnel, isok := HttpMap[info["Host"]]
+			HttpMapLock.RUnlock()
+			if isok {
+				go proxyConn(sconn, tunnel.ctl, tunnel.tunnelInfo.LocalAddress)
+			} else {
+				conn.Close()
 				return
 			}
-			fmt.Println(string(b[:nRead]))
 		}()
 	}
 }

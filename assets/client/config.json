@@ -3,6 +3,6 @@
 "LogFile": "",
 "TrustedCert": "../assets/client/cacert.pem",
 "ServerAddr": "lunnel.snakeoil.com:8080",
-"Tunnels": [{"Local": "127.0.0.1:32768"}],
+"Tunnels": [{"Local": "http://127.0.0.1:32768"}],
 "EncryptMode":"none"
 }

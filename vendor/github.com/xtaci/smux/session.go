@@ -76,15 +76,15 @@ func newSession(config *Config, conn io.ReadWriteCloser, client bool) *Session {
 }
 
 // OpenStream is used to create a new stream
-func (s *Session) OpenStream(tunnel string) (*Stream, error) {
+func (s *Session) OpenStream(localAddr string) (*Stream, error) {
 	if s.IsClosed() {
 		return nil, errors.New(errBrokenPipe)
 	}
 
 	sid := atomic.AddUint32(&s.nextStreamID, 2)
-	stream := newStream(sid, s.config.MaxFrameSize, s, tunnel)
+	stream := newStream(sid, s.config.MaxFrameSize, s, localAddr)
 	f := newFrame(cmdSYN, sid)
-	f.data = []byte(tunnel)
+	f.data = []byte(localAddr)
 	if _, err := s.writeFrame(f); err != nil {
 		return nil, errors.Wrap(err, "writeFrame")
 	}

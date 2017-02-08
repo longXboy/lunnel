@@ -41,7 +41,7 @@ type PipeClientHello struct {
 }
 
 type Tunnel struct {
-	Schema        string `json:"Schema"`
+	//only supprt tcp\udp\unix socket\http\https
 	LocalAddress  string `json:"Local"`
 	RemoteAddress string `json:"Remote"`
 }

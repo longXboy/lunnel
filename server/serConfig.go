@@ -16,6 +16,9 @@ type Config struct {
 	Prod         bool
 	LogFile      string
 	ControlAddr  string
+	HttpPort     int
+	HttpsPort    int
+	ListenAddr   string
 	ServerDomain string
 	TlsCert      string
 	TlsKey       string
@@ -42,6 +45,12 @@ func LoadConfig(configFile string) error {
 	}
 	if serverConf.ControlAddr == "" {
 		serverConf.ControlAddr = "0.0.0.0:8080"
+	}
+	if serverConf.HttpPort == 0 {
+		serverConf.HttpPort = 80
+	}
+	if serverConf.HttpsPort == 0 {
+		serverConf.HttpsPort = 443
 	}
 	if serverConf.ServerDomain == "" {
 		serverConf.ServerDomain = "lunnel.snakeoil.com"
