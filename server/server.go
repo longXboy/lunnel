@@ -7,7 +7,6 @@ import (
 	"Lunnel/vhost"
 	"crypto/tls"
 	"flag"
-	"fmt"
 	rawLog "log"
 	"net"
 
@@ -68,20 +67,27 @@ func serveHttps(addr string) {
 			continue
 		}
 		go func() {
-			defer conn.Close()
 			sconn, info, err := vhost.GetHttpsHostname(conn)
 			if err != nil {
 				log.WithFields(log.Fields{"err": err}).Errorln("vhost.GetHttpRequestInfo failed!")
 				return
 			}
-			fmt.Println(info)
-			var b []byte = make([]byte, 4096)
-			nRead, err := sconn.Read(b)
+			HttpsMapLock.RLock()
+			tunnel, isok := HttpsMap[info["Host"]]
+			HttpsMapLock.RUnlock()
+			tlsConfig, err := newTlsConfig()
 			if err != nil {
-				log.WithFields(log.Fields{"err": err}).Errorln("sconn.Read failed!")
+				log.Errorln("server error cert")
+				conn.Close()
 				return
 			}
-			fmt.Println(string(b[:nRead]))
+			tlcConn := tls.Server(sconn, tlsConfig)
+			if isok {
+				go proxyConn(tlcConn, tunnel.ctl, tunnel.tunnelInfo.LocalAddress)
+			} else {
+				conn.Close()
+				return
+			}
 		}()
 	}
 }
@@ -104,7 +110,6 @@ func serveHttp(addr string) {
 				log.WithFields(log.Fields{"err": err}).Errorln("vhost.GetHttpRequestInfo failed!")
 				return
 			}
-			fmt.Println(info["Host"])
 			HttpMapLock.RLock()
 			tunnel, isok := HttpMap[info["Host"]]
 			HttpMapLock.RUnlock()
@@ -118,16 +123,25 @@ func serveHttp(addr string) {
 	}
 }
 
+func newTlsConfig() (*tls.Config, error) {
+	var err error
+	tlsConfig := &tls.Config{}
+	tlsConfig.Certificates = make([]tls.Certificate, 1)
+	tlsConfig.Certificates[0], err = tls.LoadX509KeyPair(serverConf.TlsCert, serverConf.TlsKey)
+	if err != nil {
+		log.WithFields(log.Fields{"cert": serverConf.TlsCert, "private_key": serverConf.TlsKey, "err": err}).Errorln("load LoadX509KeyPair failed!")
+		return tlsConfig, err
+	}
+	return tlsConfig, nil
+}
+
 func handleControl(conn net.Conn, cch *msg.ControlClientHello) {
 	var err error
 	var ctl *Control
 	if cch.EncryptMode == "tls" {
-		tlsConfig := &tls.Config{}
-		tlsConfig.Certificates = make([]tls.Certificate, 1)
-		tlsConfig.Certificates[0], err = tls.LoadX509KeyPair(serverConf.TlsCert, serverConf.TlsKey)
+		tlsConfig, err := newTlsConfig()
 		if err != nil {
 			conn.Close()
-			log.WithFields(log.Fields{"cert": serverConf.TlsCert, "private_key": serverConf.TlsKey, "err": err}).Errorln("client hello,load LoadX509KeyPair failed!")
 			return
 		}
 		tlsConn := tls.Server(conn, tlsConfig)

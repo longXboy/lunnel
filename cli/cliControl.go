@@ -4,6 +4,7 @@ import (
 	"Lunnel/crypto"
 	"Lunnel/msg"
 	"Lunnel/util"
+	"crypto/tls"
 	"io"
 	"net"
 	"sync/atomic"
@@ -111,12 +112,16 @@ func (c *Control) createPipe() {
 			var conn net.Conn
 			if schema == "tcp" || schema == "http" || schema == "https" {
 				conn, err = net.Dial("tcp", addr)
-			}
-			if err != nil {
-				log.WithFields(log.Fields{"err": err, "local": stream.TunnelLocalAddr()}).Warningln("pipe dial local failed!")
-				return
+				if err != nil {
+					log.WithFields(log.Fields{"err": err, "local": stream.TunnelLocalAddr()}).Warningln("pipe dial local failed!")
+					return
+				}
+				if schema == "https" {
+					conn = tls.Client(conn, &tls.Config{InsecureSkipVerify: true})
+				}
 			}
 			defer conn.Close()
+
 			p1die := make(chan struct{})
 			p2die := make(chan struct{})
 

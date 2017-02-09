@@ -58,21 +58,18 @@ func LoadConfig(configFile string) error {
 	if serverConf.EncryptMode == "" {
 		serverConf.EncryptMode = "tls"
 	}
-	if serverConf.EncryptMode == "tls" {
-		if serverConf.TlsCert == "" {
-			serverConf.TlsCert = "../assets/server/snakeoil.crt"
-		}
-		if serverConf.TlsKey == "" {
-			serverConf.TlsKey = "../assets/server/snakeoil.key"
-		}
-	} else if serverConf.EncryptMode == "aes" {
+	if serverConf.TlsCert == "" {
+		serverConf.TlsCert = "../assets/server/snakeoil.crt"
+	}
+	if serverConf.TlsKey == "" {
+		serverConf.TlsKey = "../assets/server/snakeoil.key"
+	}
+	if serverConf.EncryptMode == "aes" {
 		if serverConf.SecretKey == "" {
 			serverConf.SecretKey = "defaultpassword"
 		}
 		pass := pbkdf2.Key([]byte(serverConf.SecretKey), []byte("lunnel"), 4096, 32, sha1.New)
 		serverConf.SecretKey = string(pass[:16])
-	} else if serverConf.EncryptMode != "none" {
-		return errors.Errorf("load config failed!err:=unsupported enrypt mode(%s)", serverConf.EncryptMode)
 	}
 	return nil
 }
