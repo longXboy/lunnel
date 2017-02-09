@@ -119,6 +119,21 @@ func (c *Control) createPipe() {
 				if schema == "https" {
 					conn = tls.Client(conn, &tls.Config{InsecureSkipVerify: true})
 				}
+			} else if schema == "udp" {
+				conn, err = net.Dial("udp", addr)
+				if err != nil {
+					log.WithFields(log.Fields{"err": err, "local": stream.TunnelLocalAddr()}).Warningln("pipe dial local failed!")
+					return
+				}
+			} else if schema == "unix" {
+				conn, err = net.Dial("unix", addr)
+				if err != nil {
+					log.WithFields(log.Fields{"err": err, "local": stream.TunnelLocalAddr()}).Warningln("pipe dial local failed!")
+					return
+				}
+			} else {
+				log.WithFields(log.Fields{"schema": schema, "local": stream.TunnelLocalAddr()}).Warningln("undefined transport schema")
+				return
 			}
 			defer conn.Close()
 

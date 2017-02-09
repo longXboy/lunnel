@@ -3,6 +3,6 @@
 "LogFile": "",
 "TrustedCert": "../assets/client/cacert.pem",
 "ServerAddr": "lunnel.snakeoil.com:8080",
-"Tunnels": [{"Local": "https://163.com:443"}],
+"Tunnels": [{"Local": "unix:///var/run/docker.sock"}],
 "EncryptMode":"none"
 }

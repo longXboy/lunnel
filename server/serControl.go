@@ -460,10 +460,17 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 			return errors.Wrap(err, "util.SplitAddr")
 		}
 		var lis net.Listener
-		if schema == "tcp" || schema == "unix" {
-			lis, err = net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
-			if err != nil {
-				return errors.Wrap(err, "binding TCP listener")
+		if schema == "tcp" || schema == "unix" || schema == "udp" {
+			if schema == "tcp" || schema == "unix" {
+				lis, err = net.Listen("tcp", "0.0.0.0:0")
+				if err != nil {
+					return errors.Wrap(err, "binding TCP listener")
+				}
+			} else {
+				lis, err = net.Listen("udp", "0.0.0.0:0")
+				if err != nil {
+					return errors.Wrap(err, "binding udp listener")
+				}
 			}
 			addr := lis.Addr().(*net.TCPAddr)
 			t.RemoteAddress = fmt.Sprintf("%s://%s:%d", schema, serverDomain, addr.Port)
