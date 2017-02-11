@@ -462,12 +462,12 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 		var lis net.Listener
 		if schema == "tcp" || schema == "unix" || schema == "udp" {
 			if schema == "tcp" || schema == "unix" {
-				lis, err = net.Listen("tcp", "0.0.0.0:0")
+				lis, err = net.Listen("tcp", fmt.Sprintf("%s:0", serverConf.ListenIP))
 				if err != nil {
 					return errors.Wrap(err, "binding TCP listener")
 				}
 			} else {
-				lis, err = net.Listen("udp", "0.0.0.0:0")
+				lis, err = net.Listen("udp", fmt.Sprintf("%s:0", serverConf.ListenIP))
 				if err != nil {
 					return errors.Wrap(err, "binding udp listener")
 				}

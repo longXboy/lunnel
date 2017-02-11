@@ -7,6 +7,7 @@ import (
 	"Lunnel/vhost"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	rawLog "log"
 	"net"
 
@@ -15,8 +16,8 @@ import (
 )
 
 func main() {
-	go serveHttp("0.0.0.0:80")
-	go serveHttps("0.0.0.0:443")
+	go serveHttp(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpPort))
+	go serveHttps(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpsPort))
 
 	configFile := flag.String("config", "../assets/server/config.json", "path of config file")
 	flag.Parse()
@@ -26,11 +27,11 @@ func main() {
 	}
 	InitLog()
 
-	lis, err := kcp.Listen(serverConf.ControlAddr)
+	lis, err := kcp.Listen(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort))
 	if err != nil {
 		panic(err)
 	}
-	log.WithFields(log.Fields{"address": serverConf.ControlAddr, "protocol": "udp"}).Infoln("server's control listen at")
+	log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "udp"}).Infoln("server's control listen at")
 	for {
 		if conn, err := lis.Accept(); err == nil {
 			go func() {

@@ -15,10 +15,10 @@ import (
 type Config struct {
 	Prod         bool
 	LogFile      string
-	ControlAddr  string
+	ListenPort   int
+	ListenIP     string
 	HttpPort     int
 	HttpsPort    int
-	ListenAddr   string
 	ServerDomain string
 	TlsCert      string
 	TlsKey       string
@@ -43,8 +43,11 @@ func LoadConfig(configFile string) error {
 			return errors.Wrap(err, "unmarshal config file")
 		}
 	}
-	if serverConf.ControlAddr == "" {
-		serverConf.ControlAddr = "0.0.0.0:8080"
+	if serverConf.ListenIP == "" {
+		serverConf.ListenIP = "0.0.0.0"
+	}
+	if serverConf.ListenPort == 0 {
+		serverConf.ListenPort = 8080
 	}
 	if serverConf.HttpPort == 0 {
 		serverConf.HttpPort = 80
@@ -57,6 +60,9 @@ func LoadConfig(configFile string) error {
 	}
 	if serverConf.EncryptMode == "" {
 		serverConf.EncryptMode = "tls"
+	}
+	if serverConf.EncryptMode != "tls" || serverConf.EncryptMode != "aes" || serverConf.EncryptMode != "none" {
+		return errors.Errorf("invalid encrypt mode:%s", serverConf.EncryptMode)
 	}
 	if serverConf.TlsCert == "" {
 		serverConf.TlsCert = "../assets/server/snakeoil.crt"
