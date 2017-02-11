@@ -61,7 +61,7 @@ func LoadConfig(configFile string) error {
 	if serverConf.EncryptMode == "" {
 		serverConf.EncryptMode = "tls"
 	}
-	if serverConf.EncryptMode != "tls" || serverConf.EncryptMode != "aes" || serverConf.EncryptMode != "none" {
+	if serverConf.EncryptMode != "tls" && serverConf.EncryptMode != "aes" && serverConf.EncryptMode != "none" {
 		return errors.Errorf("invalid encrypt mode:%s", serverConf.EncryptMode)
 	}
 	if serverConf.TlsCert == "" {

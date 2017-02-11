@@ -58,7 +58,7 @@ func LoadConfig(configFile string) error {
 		cliConf.SecretKey = string(pass[:16])
 	}
 	if cliConf.EncryptMode != "tls" && cliConf.EncryptMode != "aes" && cliConf.EncryptMode != "none" {
-		return errors.Errorf("invalid EncryptMode")
+		return errors.New("invalid EncryptMode")
 	}
 	if cliConf.EncryptMode == "tls" && cliConf.ServerName == "" {
 		var err error
@@ -71,7 +71,7 @@ func LoadConfig(configFile string) error {
 		cliConf.ConnRetryGap = 3
 	}
 	if cliConf.Tunnels == nil || len(cliConf.Tunnels) == 0 {
-		return errors.Errorf("you must specify at least one tunnel")
+		return errors.New("you must specify at least one tunnel")
 	}
 	return nil
 }
@@ -82,7 +82,7 @@ func resovleServerName(addr string) (string, error) {
 		return "", errors.Wrap(err, "net.SplitHostPort")
 	}
 	if net.ParseIP(host) != nil {
-		return "", errors.Errorf("ServerAddress can't be ip format")
+		return "", errors.New("ServerAddress can't be ip format")
 	}
 	return host, nil
 }

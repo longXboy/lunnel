@@ -1,4 +1,4 @@
 {
-"EncryptMode":"none",
+"EncryptMode":"tls",
 "ServerDomain":"lunnel.snakeoil.com"
 }

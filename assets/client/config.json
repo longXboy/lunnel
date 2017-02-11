@@ -4,5 +4,5 @@
 "TrustedCert": "../assets/client/cacert.pem",
 "ServerAddr": "lunnel.snakeoil.com:8080",
 "Tunnels": [{"Local": "unix:///var/run/docker.sock"}],
-"EncryptMode":"none"
+"EncryptMode":"tls"
 }

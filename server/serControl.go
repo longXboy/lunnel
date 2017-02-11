@@ -20,7 +20,7 @@ var maxIdlePipes int = 3
 var maxStreams int = 6
 
 var pingInterval time.Duration = time.Second * 8
-var pingTimeout time.Duration = time.Second * 15
+var pingTimeout time.Duration = time.Second * 17
 var cleanInterval time.Duration = time.Second * 5
 
 var ControlMapLock sync.RWMutex
@@ -268,11 +268,11 @@ func (c *Control) pipeManage() {
 }
 
 func (c *Control) Close() {
-	panic("closing")
 	select {
 	case c.toDie <- struct{}{}:
 	default:
 	}
+	log.WithField("time", time.Now().UnixNano()).Infoln("control closing")
 	return
 }
 
@@ -296,6 +296,7 @@ func (c *Control) moderator() {
 			schema, remote, err := util.SplitAddr(t.tunnelInfo.RemoteAddress)
 			if err != nil {
 				log.WithFields(log.Fields{"remoteAddr": t.tunnelInfo.RemoteAddress, "err": err}).Errorln("split RemoteAddress failed!")
+				continue
 			}
 			if schema == "http" || schema == "https" {
 				host, _, err := net.SplitHostPort(remote)
@@ -462,6 +463,7 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 		var lis net.Listener
 		if schema == "tcp" || schema == "unix" || schema == "udp" {
 			if schema == "tcp" || schema == "unix" {
+				schema = "tcp"
 				lis, err = net.Listen("tcp", fmt.Sprintf("%s:0", serverConf.ListenIP))
 				if err != nil {
 					return errors.Wrap(err, "binding TCP listener")

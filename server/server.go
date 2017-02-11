@@ -12,7 +12,6 @@ import (
 	"net"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/pkg/errors"
 )
 
 func main() {
@@ -29,7 +28,7 @@ func main() {
 
 	lis, err := kcp.Listen(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort))
 	if err != nil {
-		panic(err)
+		log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "udp", "err": err}).Fatalln("server's control listen failed!")
 	}
 	log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "udp"}).Infoln("server's control listen at")
 	for {
@@ -51,7 +50,7 @@ func main() {
 				}
 			}()
 		} else {
-			panic(err)
+			log.WithFields(log.Fields{"err": err}).Errorln("lis.Accept failed!")
 		}
 	}
 }
@@ -166,12 +165,14 @@ func handleControl(conn net.Conn, cch *msg.ControlClientHello) {
 	err = ctl.ServerHandShake()
 	if err != nil {
 		conn.Close()
-		panic(errors.Wrap(err, "ctl.ServerHandShake"))
+		log.WithFields(log.Fields{"err": err, "ClientId": ctl.ClientID}).Errorln("ctl.ServerHandShake failed!")
+		return
 	}
 	err = ctl.ServerSyncTunnels(serverConf.ServerDomain)
 	if err != nil {
 		conn.Close()
-		panic(errors.Wrap(err, "ctl.ServerSyncTunnels"))
+		log.WithFields(log.Fields{"err": err, "ClientId": ctl.ClientID}).Errorln("ctl.ServerSyncTunnels failed!")
+		return
 	}
 	ctl.Serve()
 }

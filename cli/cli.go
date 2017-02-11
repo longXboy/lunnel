@@ -59,7 +59,7 @@ func main() {
 	InitLog()
 
 	for {
-		log.WithFields(log.Fields{"addr": cliConf.ServerAddr}).Infoln("creating control conn to server")
+		log.WithFields(log.Fields{"addr": cliConf.ServerAddr}).Infoln("trying to create control conn to server")
 		conn, err := CreateConn(cliConf.ServerAddr, true)
 		if err != nil {
 			log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("create ControlAddr conn failed!")

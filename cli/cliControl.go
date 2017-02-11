@@ -16,7 +16,7 @@ import (
 )
 
 var pingInterval time.Duration = time.Second * 8
-var pingTimeout time.Duration = time.Second * 15
+var pingTimeout time.Duration = time.Second * 17
 
 func NewControl(conn net.Conn, encryptMode string) *Control {
 	ctl := &Control{
@@ -50,11 +50,11 @@ type Control struct {
 }
 
 func (c *Control) Close() {
-	log.WithField("time", time.Now().UnixNano()).Panicln("closing")
 	select {
 	case c.toDie <- struct{}{}:
 	default:
 	}
+	log.WithField("time", time.Now().UnixNano()).Infoln("control closing")
 	return
 }
 
@@ -251,7 +251,7 @@ func (c *Control) ClientHandShake() error {
 	if c.encryptMode != "none" {
 		priv, keyMsg := crypto.GenerateKeyExChange()
 		if keyMsg == nil || priv == nil {
-			return errors.Errorf("GenerateKeyExChange error,key is nil")
+			return errors.New("GenerateKeyExChange error,key is nil")
 		}
 		var ckem msg.CipherKeyExchange
 		ckem.CipherKey = keyMsg
