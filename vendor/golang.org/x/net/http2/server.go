@@ -278,6 +278,16 @@ func (s *Server) ServeConn(c net.Conn, opts *ServeConnOpts) {
 		pushEnabled:       true,
 	}
 
+	// The net/http package sets the write deadline from the
+	// http.Server.WriteTimeout during the TLS handshake, but then
+	// passes the connection off to us with the deadline already
+	// set. Disarm it here so that it is not applied to additional
+	// streams opened on this connection.
+	// TODO: implement WriteTimeout fully. See Issue 18437.
+	if sc.hs.WriteTimeout != 0 {
+		sc.conn.SetWriteDeadline(time.Time{})
+	}
+
 	if s.NewWriteScheduler != nil {
 		sc.writeSched = s.NewWriteScheduler()
 	} else {
@@ -700,7 +710,7 @@ func (sc *serverConn) serve() {
 		return
 	}
 	// Now that we've got the preface, get us out of the
-	// "StateNew" state.  We can't go directly to idle, though.
+	// "StateNew" state. We can't go directly to idle, though.
 	// Active means we read some data and anticipate a request. We'll
 	// do another Active when we get a HEADERS frame.
 	sc.setConnState(http.StateActive)
@@ -936,9 +946,15 @@ func (sc *serverConn) startFrameWrite(wr FrameWriteRequest) {
 	if st != nil {
 		switch st.state {
 		case stateHalfClosedLocal:
-			panic("internal error: attempt to send frame on half-closed-local stream")
+			switch wr.write.(type) {
+			case StreamError, handlerPanicRST, writeWindowUpdate:
+				// RFC 7540 Section 5.1 allows sending RST_STREAM, PRIORITY, and WINDOW_UPDATE
+				// in this state. (We never send PRIORITY from the server, so that is not checked.)
+			default:
+				panic(fmt.Sprintf("internal error: attempt to send frame on a half-closed-local stream: %v", wr))
+			}
 		case stateClosed:
-			panic(fmt.Sprintf("internal error: attempt to send a write %v on a closed stream", wr))
+			panic(fmt.Sprintf("internal error: attempt to send frame on a closed stream: %v", wr))
 		}
 	}
 	if wpp, ok := wr.write.(*writePushPromise); ok {
@@ -2087,8 +2103,8 @@ func (b *requestBody) Read(p []byte) (n int, err error) {
 	return
 }
 
-// responseWriter is the http.ResponseWriter implementation.  It's
-// intentionally small (1 pointer wide) to minimize garbage.  The
+// responseWriter is the http.ResponseWriter implementation. It's
+// intentionally small (1 pointer wide) to minimize garbage. The
 // responseWriterState pointer inside is zeroed at the end of a
 // request (in handlerDone) and calls on the responseWriter thereafter
 // simply crash (caller's mistake), but the much larger responseWriterState
@@ -2262,7 +2278,7 @@ const TrailerPrefix = "Trailer:"
 // says you SHOULD (but not must) predeclare any trailers in the
 // header, the official ResponseWriter rules said trailers in Go must
 // be predeclared, and then we reuse the same ResponseWriter.Header()
-// map to mean both Headers and Trailers.  When it's time to write the
+// map to mean both Headers and Trailers. When it's time to write the
 // Trailers, we pick out the fields of Headers that were declared as
 // trailers. That worked for a while, until we found the first major
 // user of Trailers in the wild: gRPC (using them only over http2),
@@ -2589,7 +2605,7 @@ func (sc *serverConn) startPush(msg startPushRequest) {
 			scheme:    msg.url.Scheme,
 			authority: msg.url.Host,
 			path:      msg.url.RequestURI(),
-			header:    msg.header,
+			header:    cloneHeader(msg.header), // clone since handler runs concurrently with writing the PUSH_PROMISE
 		})
 		if err != nil {
 			// Should not happen, since we've already validated msg.url.

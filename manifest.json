@@ -1,0 +1,7 @@
+{
+    "dependencies": {
+        "github.com/xtaci/kcp-go": {
+            "version": "^2.14.0"
+        }
+    }
+}

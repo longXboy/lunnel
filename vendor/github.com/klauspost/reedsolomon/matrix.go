@@ -87,9 +87,9 @@ func (m matrix) Check() error {
 //
 // Example: [[1, 2], [3, 4]]
 func (m matrix) String() string {
-	rowOut := make([]string, 0, len(m))
+	var rowOut []string
 	for _, row := range m {
-		colOut := make([]string, 0, len(row))
+		var colOut []string
 		for _, col := range row {
 			colOut = append(colOut, strconv.Itoa(int(col)))
 		}

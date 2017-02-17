@@ -186,15 +186,9 @@ Example of performance scaling on Intel(R) Core(TM) i7-2600 CPU @ 3.40GHz - 4 ph
 | 4       | 3179,33 | 235%  |
 | 8       | 4346,18 | 321%  |
 
-# asm2plan9s
-
-[asm2plan9s](https://github.com/fwessels/asm2plan9s) is used for assembling the AVX2 instructions into their BYTE/WORD/LONG equivalents.
-
 # Links
 * [Backblaze Open Sources Reed-Solomon Erasure Coding Source Code](https://www.backblaze.com/blog/reed-solomon/).
 * [JavaReedSolomon](https://github.com/Backblaze/JavaReedSolomon). Compatible java library by Backblaze.
-* [reedsolomon-c](https://github.com/jannson/reedsolomon-c). C version, compatible with output from this package.
-* [Reed-Solomon Erasure Coding in Haskell](https://github.com/NicolasT/reedsolomon). Haskell port of the package with similar performance.
 * [go-erasure](https://github.com/somethingnew2-0/go-erasure). A similar library using cgo, slower in my tests.
 * [rsraid](https://github.com/goayame/rsraid). A similar library written in Go. Slower, but supports more shards.
 * [Screaming Fast Galois Field Arithmetic](http://www.snia.org/sites/default/files2/SDC2013/presentations/NewThinking/EthanMiller_Screaming_Fast_Galois_Field%20Arithmetic_SIMD%20Instructions.pdf). Basis for SSE3 optimizations.

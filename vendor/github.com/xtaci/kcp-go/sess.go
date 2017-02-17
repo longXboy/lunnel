@@ -855,6 +855,7 @@ func ListenWithOptions(laddr string, block BlockCrypt, dataShards, parityShards 
 	if err != nil {
 		return nil, errors.Wrap(err, "net.ListenUDP")
 	}
+
 	return ServeConn(block, dataShards, parityShards, conn)
 }
 

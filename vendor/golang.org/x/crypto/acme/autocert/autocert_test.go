@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,24 +52,42 @@ var authzTmpl = template.Must(template.New("authz").Parse(`{
 	]
 }`))
 
-type memCache map[string][]byte
+type memCache struct {
+	mu      sync.Mutex
+	keyData map[string][]byte
+}
 
-func (m memCache) Get(ctx context.Context, key string) ([]byte, error) {
-	v, ok := m[key]
+func (m *memCache) Get(ctx context.Context, key string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	v, ok := m.keyData[key]
 	if !ok {
 		return nil, ErrCacheMiss
 	}
 	return v, nil
 }
 
-func (m memCache) Put(ctx context.Context, key string, data []byte) error {
-	m[key] = data
+func (m *memCache) Put(ctx context.Context, key string, data []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.keyData[key] = data
 	return nil
 }
 
-func (m memCache) Delete(ctx context.Context, key string) error {
-	delete(m, key)
+func (m *memCache) Delete(ctx context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	delete(m.keyData, key)
 	return nil
+}
+
+func newMemCache() *memCache {
+	return &memCache{
+		keyData: make(map[string][]byte),
+	}
 }
 
 func dummyCert(pub interface{}, san ...string) ([]byte, error) {
@@ -108,18 +127,41 @@ func decodePayload(v interface{}, r io.Reader) error {
 }
 
 func TestGetCertificate(t *testing.T) {
-	testGetCertificate(t, false)
+	man := &Manager{Prompt: AcceptTOS}
+	defer man.stopRenew()
+	hello := &tls.ClientHelloInfo{ServerName: "example.org"}
+	testGetCertificate(t, man, "example.org", hello)
 }
 
 func TestGetCertificate_trailingDot(t *testing.T) {
-	testGetCertificate(t, true)
-}
-
-func testGetCertificate(t *testing.T, trailingDot bool) {
-	const domain = "example.org"
 	man := &Manager{Prompt: AcceptTOS}
 	defer man.stopRenew()
+	hello := &tls.ClientHelloInfo{ServerName: "example.org."}
+	testGetCertificate(t, man, "example.org", hello)
+}
 
+func TestGetCertificate_ForceRSA(t *testing.T) {
+	man := &Manager{
+		Prompt:   AcceptTOS,
+		Cache:    newMemCache(),
+		ForceRSA: true,
+	}
+	defer man.stopRenew()
+	hello := &tls.ClientHelloInfo{ServerName: "example.org"}
+	testGetCertificate(t, man, "example.org", hello)
+
+	cert, err := man.cacheGet("example.org")
+	if err != nil {
+		t.Fatalf("man.cacheGet: %v", err)
+	}
+	if _, ok := cert.PrivateKey.(*rsa.PrivateKey); !ok {
+		t.Errorf("cert.PrivateKey is %T; want *rsa.PrivateKey", cert.PrivateKey)
+	}
+}
+
+// tests man.GetCertificate flow using the provided hello argument.
+// The domain argument is the expected domain name of a certificate request.
+func testGetCertificate(t *testing.T, man *Manager, domain string, hello *tls.ClientHelloInfo) {
 	// echo token-02 | shasum -a 256
 	// then divide result in 2 parts separated by dot
 	tokenCertName := "4e8eb87631187e9ff2153b56b13a4dec.13a35d002e485d60ff37354b32f665d9.token.acme.invalid"
@@ -212,14 +254,10 @@ func testGetCertificate(t *testing.T, trailingDot bool) {
 	// simulate tls.Config.GetCertificate
 	var tlscert *tls.Certificate
 	done := make(chan struct{})
-	go func(serverName string) {
-		if trailingDot {
-			serverName += "."
-		}
-		hello := &tls.ClientHelloInfo{ServerName: serverName}
+	go func() {
 		tlscert, err = man.GetCertificate(hello)
 		close(done)
-	}(domain)
+	}()
 	select {
 	case <-time.After(time.Minute):
 		t.Fatal("man.GetCertificate took too long to return")
@@ -261,8 +299,7 @@ func testGetCertificate(t *testing.T, trailingDot bool) {
 }
 
 func TestAccountKeyCache(t *testing.T) {
-	cache := make(memCache)
-	m := Manager{Cache: cache}
+	m := Manager{Cache: newMemCache()}
 	ctx := context.Background()
 	k1, err := m.accountKey(ctx)
 	if err != nil {
@@ -296,8 +333,7 @@ func TestCache(t *testing.T) {
 		PrivateKey:  privKey,
 	}
 
-	cache := make(memCache)
-	man := &Manager{Cache: cache}
+	man := &Manager{Cache: newMemCache()}
 	defer man.stopRenew()
 	if err := man.cachePut("example.org", tlscert); err != nil {
 		t.Fatalf("man.cachePut: %v", err)

@@ -1,0 +1,83 @@
+{
+    "memo": "1cfdc03bbfa3eac5684bbcad6e3bbf249539fa81b01ce3b97223581231cf56ad",
+    "projects": [
+        {
+            "name": "github.com/Sirupsen/logrus",
+            "version": "v0.11.2",
+            "revision": "c078b1e43f58d563c74cebe63c85789e76ddb627",
+            "packages": [
+                "."
+            ]
+        },
+        {
+            "name": "github.com/klauspost/compress",
+            "version": "v1.2.1",
+            "revision": "6c8db69c4b49dd4df1fff66996cf556176d0b9bf",
+            "packages": [
+                "snappy"
+            ]
+        },
+        {
+            "name": "github.com/klauspost/cpuid",
+            "version": "v1.0",
+            "revision": "09cded8978dc9e80714c4d85b0322337b0a1e5e0",
+            "packages": [
+                "."
+            ]
+        },
+        {
+            "name": "github.com/klauspost/reedsolomon",
+            "version": "1.2",
+            "revision": "2fde63d2889a399426862a16611c489b1fed87bc",
+            "packages": [
+                "."
+            ]
+        },
+        {
+            "name": "github.com/pkg/errors",
+            "version": "v0.8.0",
+            "revision": "645ef00459ed84a119197bfb8d8205042c6df63d",
+            "packages": [
+                "."
+            ]
+        },
+        {
+            "name": "github.com/xtaci/kcp-go",
+            "version": "v2.14",
+            "revision": "6da5044c742f24f05b00db9214b57b2ac943c9ab",
+            "packages": [
+                "."
+            ]
+        },
+        {
+            "name": "golang.org/x/crypto",
+            "branch": "master",
+            "revision": "453249f01cfeb54c3d549ddb75ff152ca243f9d8",
+            "packages": [
+                "blowfish",
+                "cast5",
+                "pbkdf2",
+                "salsa20",
+                "tea",
+                "twofish",
+                "xtea"
+            ]
+        },
+        {
+            "name": "golang.org/x/net",
+            "branch": "master",
+            "revision": "b4690f45fa1cafc47b1c280c2e75116efe40cc13",
+            "packages": [
+                "ipv4"
+            ]
+        },
+        {
+            "name": "golang.org/x/sys",
+            "branch": "master",
+            "revision": "075e574b89e4c2d22f2286a7e2b919519c6f3547",
+            "packages": [
+                "unix"
+            ]
+        }
+    ]
+}

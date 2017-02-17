@@ -3,6 +3,7 @@ package main
 import (
 	"Lunnel/crypto"
 	"Lunnel/msg"
+	"Lunnel/smux"
 	"Lunnel/util"
 	"crypto/tls"
 	"io"
@@ -12,7 +13,6 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
-	"github.com/xtaci/smux"
 )
 
 var pingInterval time.Duration = time.Second * 8
