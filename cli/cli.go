@@ -63,7 +63,7 @@ func main() {
 		conn, err := CreateConn(cliConf.ServerAddr, true)
 		if err != nil {
 			log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("create ControlAddr conn failed!")
-			time.Sleep(time.Duration(int64(time.Second) * cliConf.ConnRetryGap))
+			time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
 			continue
 		}
 		var chello msg.ControlClientHello
@@ -72,7 +72,7 @@ func main() {
 		if err != nil {
 			conn.Close()
 			log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("write ControlClientHello failed!")
-			time.Sleep(time.Duration(int64(time.Second) * cliConf.ConnRetryGap))
+			time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
 			continue
 		}
 		var ctl *Control
@@ -104,18 +104,18 @@ func main() {
 		if err != nil {
 			conn.Close()
 			log.WithFields(log.Fields{"err": err}).Warnln("control.ClientHandShake failed!")
-			time.Sleep(time.Duration(int64(time.Second) * cliConf.ConnRetryGap))
+			time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
 			continue
 		}
 		err = ctl.ClientSyncTunnels()
 		if err != nil {
 			conn.Close()
 			log.WithFields(log.Fields{"err": err}).Warnln("control.ClientSyncTunnels failed!")
-			time.Sleep(time.Duration(int64(time.Second) * cliConf.ConnRetryGap))
+			time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
 			continue
 		}
 		ctl.Run()
-		time.Sleep(time.Duration(int64(time.Second) * cliConf.ConnRetryGap))
+		time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
 	}
 }
 

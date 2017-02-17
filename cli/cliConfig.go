@@ -18,7 +18,7 @@ type Config struct {
 	Prod    bool
 	LogFile string
 	//if EncryptMode is tls and ServerName is empty,ServerAddr can't be IP format
-	ServerAddr  string
+	ServerAddr  string `yaml:"server_addr"`
 	ServerName  string
 	TrustedCert string
 	SecretKey   string
@@ -26,9 +26,9 @@ type Config struct {
 	//aes:means exchange premaster key in aes mode
 	//tls:means exchange premaster key in tls mode
 	//default value is tls
-	EncryptMode  string
-	Tunnels      []msg.Tunnel
-	ConnRetryGap int64
+	EncryptMode       string
+	Tunnels           []msg.Tunnel `yaml:"tunnels"`
+	ReconnectInterval int64
 }
 
 var cliConf Config
@@ -67,8 +67,8 @@ func LoadConfig(configFile string) error {
 			return errors.Wrap(err, "resovleServerName")
 		}
 	}
-	if cliConf.ConnRetryGap == 0 {
-		cliConf.ConnRetryGap = 3
+	if cliConf.ReconnectInterval == 0 {
+		cliConf.ReconnectInterval = 3
 	}
 	if cliConf.Tunnels == nil || len(cliConf.Tunnels) == 0 {
 		return errors.New("you must specify at least one tunnel")
