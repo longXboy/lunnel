@@ -27,7 +27,7 @@ type Config struct {
 	//tls:means exchange premaster key in tls mode
 	//default value is tls
 	EncryptMode       string
-	Tunnels           []msg.Tunnel `yaml:"tunnels"`
+	Tunnels           map[string]msg.TunnelConfig `yaml:"tunnels"`
 	ReconnectInterval int64
 }
 
@@ -70,7 +70,7 @@ func LoadConfig(configFile string) error {
 	if cliConf.ReconnectInterval == 0 {
 		cliConf.ReconnectInterval = 3
 	}
-	if cliConf.Tunnels == nil || len(cliConf.Tunnels) == 0 {
+	if len(cliConf.Tunnels) == 0 {
 		return errors.New("you must specify at least one tunnel")
 	}
 	return nil

@@ -53,9 +53,10 @@ type writeReq struct {
 }
 
 type Tunnel struct {
-	tunnelInfo msg.Tunnel
-	listener   net.Listener
-	ctl        *Control
+	tunnelConfig msg.TunnelConfig
+	listener     net.Listener
+	tunnelName   string
+	ctl          *Control
 }
 
 type pipeNode struct {
@@ -293,25 +294,15 @@ func (c *Control) moderator() {
 		if t.listener != nil {
 			t.listener.Close()
 		} else {
-			schema, remote, err := util.SplitAddr(t.tunnelInfo.RemoteAddress)
-			if err != nil {
-				log.WithFields(log.Fields{"remoteAddr": t.tunnelInfo.RemoteAddress, "err": err}).Errorln("split RemoteAddress failed!")
-				continue
-			}
-			if schema == "http" || schema == "https" {
-				host, _, err := net.SplitHostPort(remote)
-				if err != nil {
-					log.WithFields(log.Fields{"remote": remote, "err": err}).Errorln("split Remote to host port failed!")
-				}
-				if schema == "http" {
-					HttpMapLock.Lock()
-					delete(HttpMap, host)
-					HttpMapLock.Unlock()
-				} else {
-					HttpsMapLock.Lock()
-					delete(HttpsMap, host)
-					HttpsMapLock.Unlock()
-				}
+			domain := fmt.Sprintf("%s.%s", t.tunnelConfig.Subdomain, t.tunnelConfig.Hostname)
+			if t.tunnelConfig.Protocol == "http" {
+				HttpMapLock.Lock()
+				delete(HttpMap, domain)
+				HttpMapLock.Unlock()
+			} else {
+				HttpsMapLock.Lock()
+				delete(HttpsMap, domain)
+				HttpsMapLock.Unlock()
 			}
 		}
 	}
@@ -454,16 +445,12 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 		return errors.Wrap(err, "ReadMsg sstm")
 	}
 	sstm := body.(*msg.SyncTunnels)
-	for i := range sstm.Tunnels {
-		t := &sstm.Tunnels[i]
-		schema, _, err := util.SplitAddr(t.LocalAddress)
-		if err != nil {
-			return errors.Wrap(err, "util.SplitAddr")
-		}
+	for name, _ := range sstm.Tunnels {
+		tempTunnel := sstm.Tunnels[name]
+		tempTunnel.Hostname = serverDomain
 		var lis net.Listener
-		if schema == "tcp" || schema == "unix" || schema == "udp" {
-			if schema == "tcp" || schema == "unix" {
-				schema = "tcp"
+		if tempTunnel.Protocol == "tcp" || tempTunnel.Protocol == "udp" {
+			if tempTunnel.Protocol == "tcp" {
 				lis, err = net.Listen("tcp", fmt.Sprintf("%s:0", serverConf.ListenIP))
 				if err != nil {
 					return errors.Wrap(err, "binding TCP listener")
@@ -474,11 +461,7 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 					return errors.Wrap(err, "binding udp listener")
 				}
 			}
-			addr := lis.Addr().(*net.TCPAddr)
-			t.RemoteAddress = fmt.Sprintf("%s://%s:%d", schema, serverDomain, addr.Port)
-			tunnel := Tunnel{*t, lis, c}
-			c.tunnels = append(c.tunnels, &tunnel)
-			go func() {
+			go func(tunnelName string) {
 				for {
 					if c.IsClosed() {
 						return
@@ -487,29 +470,34 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 					if err != nil {
 						return
 					}
-					go proxyConn(conn, c, t.LocalAddress)
+					go proxyConn(conn, c, tunnelName)
 				}
-			}()
-		} else if schema == "http" || schema == "https" {
+			}(name)
+			addr := lis.Addr().(*net.TCPAddr)
+			tempTunnel.RemotePort = uint16(addr.Port)
+			tunnel := Tunnel{tunnelConfig: tempTunnel, listener: lis, ctl: c, tunnelName: name}
+			c.tunnels = append(c.tunnels, &tunnel)
+		} else if tempTunnel.Protocol == "http" || tempTunnel.Protocol == "https" {
 			subDomain := util.Int2Short(atomic.AddUint64(&subDomainIdx, 1))
+			tempTunnel.Subdomain = string(subDomain)
 			httpAddr := fmt.Sprintf("%s.%s", subDomain, serverConf.ServerDomain)
-			if schema == "http" {
-				t.RemoteAddress = fmt.Sprintf("%s://%s:%d", schema, httpAddr, serverConf.HttpPort)
-				tunnel := Tunnel{*t, nil, c}
+			if tempTunnel.Protocol == "http" {
+				tempTunnel.RemotePort = serverConf.HttpPort
+				tunnel := Tunnel{tunnelConfig: tempTunnel, listener: nil, ctl: c, tunnelName: name}
 				c.tunnels = append(c.tunnels, &tunnel)
 				HttpMapLock.Lock()
 				HttpMap[httpAddr] = &tunnel
 				HttpMapLock.Unlock()
 			} else {
-				t.RemoteAddress = fmt.Sprintf("%s://%s:%d", schema, httpAddr, serverConf.HttpsPort)
-				tunnel := Tunnel{*t, nil, c}
+				tempTunnel.RemotePort = serverConf.HttpsPort
+				tunnel := Tunnel{tunnelConfig: tempTunnel, listener: nil, ctl: c, tunnelName: name}
 				c.tunnels = append(c.tunnels, &tunnel)
 				HttpsMapLock.Lock()
 				HttpsMap[httpAddr] = &tunnel
 				HttpsMapLock.Unlock()
 			}
-
 		}
+		sstm.Tunnels[name] = tempTunnel
 	}
 	err = msg.WriteMsg(c.ctlConn, msg.TypeSyncTunnels, *sstm)
 	if err != nil {

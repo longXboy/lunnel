@@ -37,7 +37,7 @@ type writeReq struct {
 
 type Control struct {
 	ctlConn         net.Conn
-	tunnels         []msg.Tunnel
+	tunnels         map[string]msg.TunnelConfig
 	preMasterSecret []byte
 	lastRead        uint64
 	encryptMode     string
@@ -104,36 +104,28 @@ func (c *Control) createPipe() {
 		}
 		go func() {
 			defer stream.Close()
-			schema, addr, err := util.SplitAddr(stream.TunnelLocalAddr())
-			if err != nil {
-				log.WithFields(log.Fields{"err": err, "localaddr": stream.TunnelLocalAddr()}).Errorln("Split stream's local address failed!")
+			tunnel, isok := c.tunnels[stream.TunnelLocalAddr()]
+			if !isok {
+				log.WithFields(log.Fields{"name": stream.TunnelLocalAddr()}).Errorln("can't find tunnel by name")
 				return
 			}
 			var conn net.Conn
-			if schema == "tcp" || schema == "http" || schema == "https" {
+			localProto, addr := util.SplitAddr(tunnel.LocalAddr)
+			if localProto == "http" || localProto == "https" || localProto == "" {
 				conn, err = net.Dial("tcp", addr)
 				if err != nil {
 					log.WithFields(log.Fields{"err": err, "local": stream.TunnelLocalAddr()}).Warningln("pipe dial local failed!")
 					return
 				}
-				if schema == "https" {
+				if tunnel.Protocol == "https" {
 					conn = tls.Client(conn, &tls.Config{InsecureSkipVerify: true})
 				}
-			} else if schema == "udp" {
-				conn, err = net.Dial("udp", addr)
-				if err != nil {
-					log.WithFields(log.Fields{"err": err, "local": stream.TunnelLocalAddr()}).Warningln("pipe dial local failed!")
-					return
-				}
-			} else if schema == "unix" {
-				conn, err = net.Dial("unix", addr)
-				if err != nil {
-					log.WithFields(log.Fields{"err": err, "local": stream.TunnelLocalAddr()}).Warningln("pipe dial local failed!")
-					return
-				}
 			} else {
-				log.WithFields(log.Fields{"schema": schema, "local": stream.TunnelLocalAddr()}).Warningln("undefined transport schema")
-				return
+				conn, err = net.Dial(localProto, addr)
+				if err != nil {
+					log.WithFields(log.Fields{"err": err, "local": stream.TunnelLocalAddr()}).Warningln("pipe dial local failed!")
+					return
+				}
 			}
 			defer conn.Close()
 

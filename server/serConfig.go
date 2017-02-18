@@ -17,8 +17,8 @@ type Config struct {
 	LogFile      string
 	ListenPort   int
 	ListenIP     string
-	HttpPort     int
-	HttpsPort    int
+	HttpPort     uint16
+	HttpsPort    uint16
 	ServerDomain string
 	TlsCert      string
 	TlsKey       string

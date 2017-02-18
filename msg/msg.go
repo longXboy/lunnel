@@ -3,6 +3,7 @@ package msg
 import (
 	"Lunnel/crypto"
 	"encoding/json"
+	"fmt"
 	"net"
 	"time"
 
@@ -39,32 +40,18 @@ type PipeClientHello struct {
 	Once     crypto.UUID
 	ClientID crypto.UUID
 }
-exsample := `server_addr: tunnel.daocloud.io:443
-inspect_addr: disabled
-trust_host_root_certs: false
-auth_token: a25a27ddb987cbfcd0eb7fa98104384947d169e7282494b24865b5fe9d91c0bb
-tunnels:
-  dce-controller:
-    proto:
-      http: localhost:8080
-  docker:
-    proto:
-      tcp: unix:///var/run/docker.sock`
-type Tunnel struct {
-	Name struct {
-		Proto struct {
-			Schema struct {
-				Local string
-			}
-		}
-	}
-	//only supprt tcp\udp\unix socket\http\https
-	LocalAddress  string `json:"Local"`
-	RemoteAddress string `json:"Remote"`
+
+type TunnelConfig struct {
+	Protocol   string `yaml:"proto,omitempty"`
+	LocalAddr  string `yaml:"local,omitempty"`
+	Subdomain  string `yaml:"subdomain,omitempty"`
+	Hostname   string `yaml:"hostname,omitempty"`
+	HttpAuth   string `yaml:"auth,omitempty"`
+	RemotePort uint16 `yaml:"remote_port,omitempty"`
 }
 
 type SyncTunnels struct {
-	Tunnels []Tunnel
+	Tunnels map[string]TunnelConfig
 }
 
 func WriteMsg(w net.Conn, mType MsgType, in interface{}) error {
@@ -92,10 +79,12 @@ func WriteMsg(w net.Conn, mType MsgType, in interface{}) error {
 		copy(x[4:], body)
 	}
 	w.SetWriteDeadline(time.Now().Add(time.Second * 10))
+	fmt.Println("ready to send msg:", mType)
 	_, err = w.Write(x)
 	if err != nil {
 		return errors.Wrap(err, "write msg")
 	}
+	fmt.Println("send msg:", mType)
 	w.SetWriteDeadline(time.Time{})
 	return nil
 }

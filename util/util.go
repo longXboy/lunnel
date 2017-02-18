@@ -2,8 +2,6 @@ package util
 
 import (
 	"strings"
-
-	"github.com/pkg/errors"
 )
 
 func Int2Short(a uint64) []byte {
@@ -28,13 +26,10 @@ func Int2Short(a uint64) []byte {
 	return link
 }
 
-func SplitAddr(s string) (string, string, error) {
-	if len(s) < 4 {
-		return "", "", errors.Errorf("invalid local address")
-	}
+func SplitAddr(s string) (string, string) {
 	temp := strings.Split(s, "://")
 	if len(temp) != 2 {
-		return "", "", errors.Errorf("invalid local address")
+		return "", s
 	}
-	return temp[0], temp[1], nil
+	return temp[0], temp[1]
 }

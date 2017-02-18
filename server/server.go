@@ -4,6 +4,7 @@ import (
 	"Lunnel/crypto"
 	"Lunnel/kcp"
 	"Lunnel/msg"
+	"Lunnel/smux"
 	"Lunnel/vhost"
 	"crypto/tls"
 	"flag"
@@ -15,9 +16,6 @@ import (
 )
 
 func main() {
-	go serveHttp(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpPort))
-	go serveHttps(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpsPort))
-
 	configFile := flag.String("config", "../assets/server/config.json", "path of config file")
 	flag.Parse()
 	err := LoadConfig(*configFile)
@@ -25,6 +23,9 @@ func main() {
 		rawLog.Fatalf("load config failed!err:=%v", err)
 	}
 	InitLog()
+
+	go serveHttp(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpPort))
+	go serveHttps(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpsPort))
 
 	lis, err := kcp.Listen(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort))
 	if err != nil {
@@ -41,8 +42,23 @@ func main() {
 					return
 				}
 				if mType == msg.TypeControlClientHello {
+					smuxConfig := smux.DefaultConfig()
+					smuxConfig.MaxReceiveBuffer = 4194304
+					sess, err := smux.Server(conn, smuxConfig)
+					if err != nil {
+						conn.Close()
+						log.WithFields(log.Fields{"err": err}).Warningln("upgrade to smux.Server failed!")
+						return
+					}
+					stream, err := sess.AcceptStream()
+					if err != nil {
+						sess.Close()
+						log.WithFields(log.Fields{"err": err}).Warningln("accept stream failed!")
+						return
+					}
 					log.WithFields(log.Fields{"encrypt_mode": body.(*msg.ControlClientHello).EncryptMode}).Infoln("new client hello")
-					handleControl(conn, body.(*msg.ControlClientHello))
+					handleControl(stream, body.(*msg.ControlClientHello))
+					sess.Close()
 				} else if mType == msg.TypePipeClientHello {
 					handlePipe(conn, body.(*msg.PipeClientHello))
 				} else {
@@ -58,8 +74,9 @@ func main() {
 func serveHttps(addr string) {
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.WithFields(log.Fields{"addr": addr, "err": err}).Fatalln("listen http failed!")
+		log.WithFields(log.Fields{"addr": addr, "err": err}).Fatalln("listen https failed!")
 	}
+	log.WithFields(log.Fields{"addr": addr, "err": err}).Println("listen https")
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
@@ -72,6 +89,7 @@ func serveHttps(addr string) {
 				log.WithFields(log.Fields{"err": err}).Errorln("vhost.GetHttpRequestInfo failed!")
 				return
 			}
+			fmt.Println(HttpsMap)
 			HttpsMapLock.RLock()
 			tunnel, isok := HttpsMap[info["Host"]]
 			HttpsMapLock.RUnlock()
@@ -83,7 +101,7 @@ func serveHttps(addr string) {
 			}
 			tlcConn := tls.Server(sconn, tlsConfig)
 			if isok {
-				go proxyConn(tlcConn, tunnel.ctl, tunnel.tunnelInfo.LocalAddress)
+				go proxyConn(tlcConn, tunnel.ctl, tunnel.tunnelName)
 			} else {
 				conn.Close()
 				return
@@ -97,6 +115,7 @@ func serveHttp(addr string) {
 	if err != nil {
 		log.WithFields(log.Fields{"addr": addr, "err": err}).Fatalln("listen http failed!")
 	}
+	log.WithFields(log.Fields{"addr": addr, "err": err}).Println("listen http")
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
@@ -110,11 +129,12 @@ func serveHttp(addr string) {
 				log.WithFields(log.Fields{"err": err}).Errorln("vhost.GetHttpRequestInfo failed!")
 				return
 			}
+			fmt.Println(HttpMap)
 			HttpMapLock.RLock()
 			tunnel, isok := HttpMap[info["Host"]]
 			HttpMapLock.RUnlock()
 			if isok {
-				go proxyConn(sconn, tunnel.ctl, tunnel.tunnelInfo.LocalAddress)
+				go proxyConn(sconn, tunnel.ctl, tunnel.tunnelName)
 			} else {
 				conn.Close()
 				return
