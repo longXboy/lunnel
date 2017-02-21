@@ -512,15 +512,17 @@ func (c *Control) GenerateClientId() crypto.UUID {
 }
 
 func (c *Control) ServerHandShake() error {
+	var cidm msg.ControlServerHello
+
 	if c.encryptMode != "none" {
 		mType, body, err := msg.ReadMsg(c.ctlConn)
 		if err != nil {
 			return errors.Wrap(err, "msg.ReadMsg")
 		}
-		if mType != msg.TypeClientKeyExchange {
-			return errors.Errorf("invalid msg type(%d),expect(%d)", mType, msg.TypeClientKeyExchange)
+		if mType != msg.TypeControlClientHello {
+			return errors.Errorf("invalid msg type(%d),expect(%d)", mType, msg.TypeControlClientHello)
 		}
-		ckem := body.(*msg.CipherKeyExchange)
+		ckem := body.(*msg.ControlClientHello)
 		priv, keyMsg := crypto.GenerateKeyExChange()
 		if keyMsg == nil || priv == nil {
 			return errors.Errorf("crypto.GenerateKeyExChange error ,exchange key is nil")
@@ -530,15 +532,8 @@ func (c *Control) ServerHandShake() error {
 			return errors.Wrap(err, "crypto.ProcessKeyExchange")
 		}
 		c.preMasterSecret = preMasterSecret
-		var skem msg.CipherKeyExchange
-		skem.CipherKey = keyMsg
-		err = msg.WriteMsg(c.ctlConn, msg.TypeServerKeyExchange, skem)
-		if err != nil {
-			return errors.Wrap(err, "write ServerKeyExchange msg")
-		}
+		cidm.CipherKey = keyMsg
 	}
-
-	var cidm msg.ClientIDExchange
 	cidm.ClientID = c.GenerateClientId()
 	err := msg.WriteMsg(c.ctlConn, msg.TypeClientID, cidm)
 	if err != nil {

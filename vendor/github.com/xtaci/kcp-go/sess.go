@@ -207,7 +207,7 @@ func (s *UDPSession) Write(b []byte) (n int, err error) {
 			}
 		}
 
-		if s.kcp.WaitSnd() < int(s.kcp.snd_wnd) {
+		if s.kcp.WaitSnd() < int(s.kcp.Cwnd()) {
 			n = len(b)
 			max := s.kcp.mss << 8
 			for {
@@ -503,7 +503,7 @@ func (s *UDPSession) updateTask() {
 		case <-tc:
 			s.mu.Lock()
 			s.kcp.flush()
-			if s.kcp.WaitSnd() < int(s.kcp.snd_wnd) {
+			if s.kcp.WaitSnd() < int(s.kcp.Cwnd()) {
 				s.notifyWriteEvent()
 			}
 			s.mu.Unlock()

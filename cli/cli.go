@@ -68,7 +68,7 @@ func main() {
 			continue
 		}
 
-		var chello msg.ControlClientHello
+		var chello msg.ClientHello
 		chello.EncryptMode = cliConf.EncryptMode
 		fmt.Println("write msg client hello")
 		err = msg.WriteMsg(conn, msg.TypeControlClientHello, chello)

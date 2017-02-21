@@ -56,8 +56,8 @@ func main() {
 						log.WithFields(log.Fields{"err": err}).Warningln("accept stream failed!")
 						return
 					}
-					log.WithFields(log.Fields{"encrypt_mode": body.(*msg.ControlClientHello).EncryptMode}).Infoln("new client hello")
-					handleControl(stream, body.(*msg.ControlClientHello))
+					log.WithFields(log.Fields{"encrypt_mode": body.(*msg.ClientHello).EncryptMode}).Infoln("new client hello")
+					handleControl(stream, body.(*msg.ClientHello))
 					sess.Close()
 				} else if mType == msg.TypePipeClientHello {
 					handlePipe(conn, body.(*msg.PipeClientHello))
@@ -155,7 +155,7 @@ func newTlsConfig() (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
-func handleControl(conn net.Conn, cch *msg.ControlClientHello) {
+func handleControl(conn net.Conn, cch *msg.ClientHello) {
 	var err error
 	var ctl *Control
 	if cch.EncryptMode == "tls" {

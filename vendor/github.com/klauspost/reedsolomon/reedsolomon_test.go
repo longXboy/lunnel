@@ -14,9 +14,43 @@ import (
 	"testing"
 )
 
+func testOpts() [][]Option {
+	if !testing.Short() {
+		return [][]Option{}
+	}
+	opts := [][]Option{
+		{WithMaxGoroutines(1), WithMinSplitSize(500), withSSE3(false), withAVX2(false)},
+		{WithMaxGoroutines(5000), WithMinSplitSize(50), withSSE3(false), withAVX2(false)},
+		{WithMaxGoroutines(5000), WithMinSplitSize(500000), withSSE3(false), withAVX2(false)},
+		{WithMaxGoroutines(1), WithMinSplitSize(500000), withSSE3(false), withAVX2(false)},
+	}
+	for _, o := range opts[:] {
+		if defaultOptions.useSSSE3 {
+			n := make([]Option, len(o), len(o)+1)
+			copy(n, o)
+			n = append(n, withSSE3(true))
+			opts = append(opts, n)
+		}
+		if defaultOptions.useAVX2 {
+			n := make([]Option, len(o), len(o)+1)
+			copy(n, o)
+			n = append(n, withAVX2(true))
+			opts = append(opts, n)
+		}
+	}
+	return opts
+}
+
 func TestEncoding(t *testing.T) {
+	testEncoding(t)
+	for _, o := range testOpts() {
+		testEncoding(t, o...)
+	}
+}
+
+func testEncoding(t *testing.T, o ...Option) {
 	perShard := 50000
-	r, err := New(10, 3)
+	r, err := New(10, 3, o...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,8 +90,15 @@ func TestEncoding(t *testing.T) {
 }
 
 func TestReconstruct(t *testing.T) {
+	testReconstruct(t)
+	for _, o := range testOpts() {
+		testReconstruct(t, o...)
+	}
+}
+
+func testReconstruct(t *testing.T, o ...Option) {
 	perShard := 50000
-	r, err := New(10, 3)
+	r, err := New(10, 3, o...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,8 +163,15 @@ func TestReconstruct(t *testing.T) {
 }
 
 func TestVerify(t *testing.T) {
+	testVerify(t)
+	for _, o := range testOpts() {
+		testVerify(t, o...)
+	}
+}
+
+func testVerify(t *testing.T, o ...Option) {
 	perShard := 33333
-	r, err := New(10, 4)
+	r, err := New(10, 4, o...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,15 +425,186 @@ func BenchmarkVerify10x4x16M(b *testing.B) {
 	benchmarkVerify(b, 10, 4, 16*1024*1024)
 }
 
+func corruptRandom(shards [][]byte, dataShards, parityShards int) {
+	shardsToCorrupt := rand.Intn(parityShards)
+	for i := 1; i <= shardsToCorrupt; i++ {
+		shards[rand.Intn(dataShards+parityShards)] = nil
+	}
+}
+
+func benchmarkReconstruct(b *testing.B, dataShards, parityShards, shardSize int) {
+	r, err := New(dataShards, parityShards)
+	if err != nil {
+		b.Fatal(err)
+	}
+	shards := make([][]byte, parityShards+dataShards)
+	for s := range shards {
+		shards[s] = make([]byte, shardSize)
+	}
+
+	rand.Seed(0)
+	for s := 0; s < dataShards; s++ {
+		fillRandom(shards[s])
+	}
+	err = r.Encode(shards)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.SetBytes(int64(shardSize * dataShards))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		corruptRandom(shards, dataShards, parityShards)
+
+		err = r.Reconstruct(shards)
+		if err != nil {
+			b.Fatal(err)
+		}
+		ok, err := r.Verify(shards)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if !ok {
+			b.Fatal("Verification failed")
+		}
+	}
+}
+
+// Benchmark 10 data slices with 2 parity slices holding 10000 bytes each
+func BenchmarkReconstruct10x2x10000(b *testing.B) {
+	benchmarkReconstruct(b, 10, 2, 10000)
+}
+
+// Benchmark 50 data slices with 5 parity slices holding 100000 bytes each
+func BenchmarkReconstruct50x5x50000(b *testing.B) {
+	benchmarkReconstruct(b, 50, 5, 100000)
+}
+
+// Benchmark 10 data slices with 2 parity slices holding 1MB bytes each
+func BenchmarkReconstruct10x2x1M(b *testing.B) {
+	benchmarkReconstruct(b, 10, 2, 1024*1024)
+}
+
+// Benchmark 5 data slices with 2 parity slices holding 1MB bytes each
+func BenchmarkReconstruct5x2x1M(b *testing.B) {
+	benchmarkReconstruct(b, 5, 2, 1024*1024)
+}
+
+// Benchmark 10 data slices with 4 parity slices holding 1MB bytes each
+func BenchmarkReconstruct10x4x1M(b *testing.B) {
+	benchmarkReconstruct(b, 10, 4, 1024*1024)
+}
+
+// Benchmark 5 data slices with 2 parity slices holding 1MB bytes each
+func BenchmarkReconstruct50x20x1M(b *testing.B) {
+	benchmarkReconstruct(b, 50, 20, 1024*1024)
+}
+
+// Benchmark 10 data slices with 4 parity slices holding 16MB bytes each
+func BenchmarkReconstruct10x4x16M(b *testing.B) {
+	benchmarkReconstruct(b, 10, 4, 16*1024*1024)
+}
+
+func benchmarkReconstructP(b *testing.B, dataShards, parityShards, shardSize int) {
+	r, err := New(dataShards, parityShards)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.SetBytes(int64(shardSize * dataShards))
+	runtime.GOMAXPROCS(runtime.NumCPU())
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		shards := make([][]byte, parityShards+dataShards)
+		for s := range shards {
+			shards[s] = make([]byte, shardSize)
+		}
+
+		rand.Seed(0)
+		for s := 0; s < dataShards; s++ {
+			fillRandom(shards[s])
+		}
+		err = r.Encode(shards)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		for pb.Next() {
+			corruptRandom(shards, dataShards, parityShards)
+
+			err = r.Reconstruct(shards)
+			if err != nil {
+				b.Fatal(err)
+			}
+			ok, err := r.Verify(shards)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if !ok {
+				b.Fatal("Verification failed")
+			}
+		}
+	})
+}
+
+// Benchmark 10 data slices with 2 parity slices holding 10000 bytes each
+func BenchmarkReconstructP10x2x10000(b *testing.B) {
+	benchmarkReconstructP(b, 10, 2, 10000)
+}
+
+// Benchmark 50 data slices with 5 parity slices holding 100000 bytes each
+func BenchmarkReconstructP50x5x50000(b *testing.B) {
+	benchmarkReconstructP(b, 50, 5, 100000)
+}
+
+// Benchmark 10 data slices with 2 parity slices holding 1MB bytes each
+func BenchmarkReconstructP10x2x1M(b *testing.B) {
+	benchmarkReconstructP(b, 10, 2, 1024*1024)
+}
+
+// Benchmark 5 data slices with 2 parity slices holding 1MB bytes each
+func BenchmarkReconstructP5x2x1M(b *testing.B) {
+	benchmarkReconstructP(b, 5, 2, 1024*1024)
+}
+
+// Benchmark 10 data slices with 4 parity slices holding 1MB bytes each
+func BenchmarkReconstructP10x4x1M(b *testing.B) {
+	benchmarkReconstructP(b, 10, 4, 1024*1024)
+}
+
+// Benchmark 5 data slices with 2 parity slices holding 1MB bytes each
+func BenchmarkReconstructP50x20x1M(b *testing.B) {
+	benchmarkReconstructP(b, 50, 20, 1024*1024)
+}
+
+// Benchmark 10 data slices with 4 parity slices holding 16MB bytes each
+func BenchmarkReconstructP10x4x16M(b *testing.B) {
+	benchmarkReconstructP(b, 10, 4, 16*1024*1024)
+}
+
 func TestEncoderReconstruct(t *testing.T) {
+	testEncoderReconstruct(t)
+	for _, o := range testOpts() {
+		testEncoderReconstruct(t, o...)
+	}
+}
+
+func testEncoderReconstruct(t *testing.T, o ...Option) {
 	// Create some sample data
 	var data = make([]byte, 250000)
 	fillRandom(data)
 
 	// Create 5 data slices of 50000 elements each
-	enc, _ := New(5, 3)
-	shards, _ := enc.Split(data)
-	err := enc.Encode(shards)
+	enc, err := New(5, 3, o...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shards, err := enc.Split(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = enc.Encode(shards)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,6 +700,12 @@ func TestSplitJoin(t *testing.T) {
 	err = enc.Join(buf, shards, len(data)+1)
 	if err != ErrShortData {
 		t.Errorf("expected %v, got %v", ErrShortData, err)
+	}
+
+	shards[0] = nil
+	err = enc.Join(buf, shards, len(data))
+	if err != ErrReconstructRequired {
+		t.Errorf("expected %v, got %v", ErrReconstructRequired, err)
 	}
 }
 

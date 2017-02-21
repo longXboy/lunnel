@@ -240,37 +240,34 @@ func (c *Control) Run() {
 }
 
 func (c *Control) ClientHandShake() error {
+	var ckem msg.ControlClientHello
+	var priv []byte
+	var keyMsg []byte
 	if c.encryptMode != "none" {
-		priv, keyMsg := crypto.GenerateKeyExChange()
+		priv, keyMsg = crypto.GenerateKeyExChange()
 		if keyMsg == nil || priv == nil {
 			return errors.New("GenerateKeyExChange error,key is nil")
 		}
-		var ckem msg.CipherKeyExchange
 		ckem.CipherKey = keyMsg
-		err := msg.WriteMsg(c.ctlConn, msg.TypeClientKeyExchange, ckem)
+		ckem.AuthToken = ""
+		err := msg.WriteMsg(c.ctlConn, msg.TypeControlClientHello, ckem)
 		if err != nil {
 			return errors.Wrap(err, "WriteMsg ckem")
 		}
-		_, body, err := msg.ReadMsg(c.ctlConn)
-		if err != nil {
-			return errors.Wrap(err, "read skem")
-		}
-		var preMasterSecret []byte
-		skem := body.(*msg.CipherKeyExchange)
-		preMasterSecret, err = crypto.ProcessKeyExchange(priv, skem.CipherKey)
-		if err != nil {
-			return errors.Wrap(err, "crypto.ProcessKeyExchange")
-		}
-		c.preMasterSecret = preMasterSecret
 	}
 	_, body, err := msg.ReadMsg(c.ctlConn)
 	if err != nil {
 		return errors.Wrap(err, "read ClientID")
 	}
-	cidm := body.(*msg.ClientIDExchange)
-
+	cidm := body.(*msg.ControlServerHello)
 	c.ClientID = cidm.ClientID
-
+	if len(cidm.CipherKey) > 0 {
+		preMasterSecret, err := crypto.ProcessKeyExchange(priv, cidm.CipherKey)
+		if err != nil {
+			return errors.Wrap(err, "crypto.ProcessKeyExchange")
+		}
+		c.preMasterSecret = preMasterSecret
+	}
 	return nil
 }
 

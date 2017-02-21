@@ -27,8 +27,8 @@
         },
         {
             "name": "github.com/klauspost/reedsolomon",
-            "version": "1.2",
-            "revision": "2fde63d2889a399426862a16611c489b1fed87bc",
+            "version": "1.3",
+            "revision": "5abf0ee302ccf4834e84f63ff74eca3e8b88e4e2",
             "packages": [
                 "."
             ]
@@ -43,8 +43,8 @@
         },
         {
             "name": "github.com/xtaci/kcp-go",
-            "version": "v2.14",
-            "revision": "6da5044c742f24f05b00db9214b57b2ac943c9ab",
+            "version": "v2.18",
+            "revision": "39bec2a73d46f2e0e104f94d7411e2cc63b1e6d3",
             "packages": [
                 "."
             ]
@@ -66,7 +66,7 @@
         {
             "name": "golang.org/x/net",
             "branch": "master",
-            "revision": "b4690f45fa1cafc47b1c280c2e75116efe40cc13",
+            "revision": "6b27048ae5e6ad1ef927e72e437531493de612fe",
             "packages": [
                 "ipv4"
             ]

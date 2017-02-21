@@ -101,7 +101,7 @@ You might have a large slice of data. To help you split this, there are some hel
 ```
 This will split the file into the number of data shards set when creating the encoder and create empty parity shards. 
 
-An important thing to note is that you have to *keep track of the exact input size*. If the size of the input isn't diviable by the number of data shards, extra zeros will be inserted in the last shard.
+An important thing to note is that you have to *keep track of the exact input size*. If the size of the input isn't divisible by the number of data shards, extra zeros will be inserted in the last shard.
 
 To join a data set, use the `Join()` function, which will join the shards and write it to the `io.Writer` you supply: 
 ```Go
@@ -153,7 +153,7 @@ This also means that you can divide big input up into smaller blocks, and do rec
 
 # Streaming API
 
-There has been added a fully streaming API, to help perform fully streaming operations, which enables you to do the same operations, but on streams. To use the stream API, use [`NewStream`](https://godoc.org/github.com/klauspost/reedsolomon#NewStream) function to create the encoding/decoding interfaces. You can use [`NewStreamC`](https://godoc.org/github.com/klauspost/reedsolomon#NewStreamC) to ready an interface that reads/writes concurrently from the streams.
+There has been added support for a streaming API, to help perform fully streaming operations, which enables you to do the same operations, but on streams. To use the stream API, use [`NewStream`](https://godoc.org/github.com/klauspost/reedsolomon#NewStream) function to create the encoding/decoding interfaces. You can use [`NewStreamC`](https://godoc.org/github.com/klauspost/reedsolomon#NewStreamC) to ready an interface that reads/writes concurrently from the streams.
 
 Input is delivered as `[]io.Reader`, output as `[]io.Writer`, and functionality corresponds to the in-memory API. Each stream must supply the same amount of data, similar to how each slice must be similar size with the in-memory API. 
 If an error occurs in relation to a stream, a [`StreamReadError`](https://godoc.org/github.com/klauspost/reedsolomon#StreamReadError) or [`StreamWriteError`](https://godoc.org/github.com/klauspost/reedsolomon#StreamWriteError) will help you determine which stream was the offender.
@@ -161,6 +161,18 @@ If an error occurs in relation to a stream, a [`StreamReadError`](https://godoc.
 There is no buffering or timeouts/retry specified. If you want to add that, you need to add it to the Reader/Writer.
 
 For complete examples of a streaming encoder and decoder see the [examples folder](https://github.com/klauspost/reedsolomon/tree/master/examples).
+
+#Advanced Options
+
+You can modify internal options which affects how jobs are split between and processed by goroutines.
+
+To create options, use the WithXXX functions. You can supply options to `New`, `NewStream` and `NewStreamC`. If no Options are supplied, default options are used.
+
+Example of how to supply options:
+
+ ```Go
+     enc, err := reedsolomon.New(10, 3, WithMaxGoroutines(25))
+ ```
 
 
 # Performance
@@ -186,9 +198,15 @@ Example of performance scaling on Intel(R) Core(TM) i7-2600 CPU @ 3.40GHz - 4 ph
 | 4       | 3179,33 | 235%  |
 | 8       | 4346,18 | 321%  |
 
+# asm2plan9s
+
+[asm2plan9s](https://github.com/fwessels/asm2plan9s) is used for assembling the AVX2 instructions into their BYTE/WORD/LONG equivalents.
+
 # Links
 * [Backblaze Open Sources Reed-Solomon Erasure Coding Source Code](https://www.backblaze.com/blog/reed-solomon/).
 * [JavaReedSolomon](https://github.com/Backblaze/JavaReedSolomon). Compatible java library by Backblaze.
+* [reedsolomon-c](https://github.com/jannson/reedsolomon-c). C version, compatible with output from this package.
+* [Reed-Solomon Erasure Coding in Haskell](https://github.com/NicolasT/reedsolomon). Haskell port of the package with similar performance.
 * [go-erasure](https://github.com/somethingnew2-0/go-erasure). A similar library using cgo, slower in my tests.
 * [rsraid](https://github.com/goayame/rsraid). A similar library written in Go. Slower, but supports more shards.
 * [Screaming Fast Galois Field Arithmetic](http://www.snia.org/sites/default/files2/SDC2013/presentations/NewThinking/EthanMiller_Screaming_Fast_Galois_Field%20Arithmetic_SIMD%20Instructions.pdf). Basis for SSE3 optimizations.

@@ -76,6 +76,12 @@ PASS
 ok  	github.com/xtaci/kcp-go	0.600s
 ```
 
+## Tuning
+
+Q: I'm running > 3000 connections on my server. the CPU utilization is high.
+
+A: A standalone `agent` or `gate` server for kcp-go is suggested, not only for CPU utilization, but also important to the **precision** of RTT measurements which indirectly affects retransmission. By increasing update `interval` with `SetNoDelay` like `conn.SetNoDelay(1, 40, 1, 1)` will dramatically reduce system load.
+
 ## Who is using this?
 
 1. https://github.com/xtaci/kcptun
@@ -87,3 +93,15 @@ ok  	github.com/xtaci/kcp-go	0.600s
 1. https://github.com/xtaci/libkcp -- FEC enhanced KCP session library for iOS/Android in C++
 2. https://github.com/skywind3000/kcp -- A Fast and Reliable ARQ Protocol
 3. https://github.com/klauspost/reedsolomon -- Reed-Solomon Erasure Coding in Go
+
+### Support
+
+You can support this project by the following methods:
+
+1. Vultr promotion code:     
+http://www.vultr.com/?ref=6897065
+
+2. Paypal    
+https://www.paypal.me/xtaci
+
+Your name or github name will be listed on this page by default.

@@ -13,27 +13,30 @@ import (
 type MsgType uint8
 
 const (
-	TypeControlClientHello MsgType = 1
-	TypeClientKeyExchange  MsgType = 2
-	TypeServerKeyExchange  MsgType = 3
-	TypeClientID           MsgType = 4
-	TypePipeClientHello    MsgType = 5
-	TypeSyncTunnels        MsgType = 6
-	TypePipeReq            MsgType = 7
-	TypePing               MsgType = 8
-	TypePong               MsgType = 9
+	TypeClientHello MsgType = iota
+	TypeControlClientHello
+	TypeControlServerHello
+	TypeClientID
+	TypePipeClientHello
+	TypeSyncTunnels
+	TypePipeReq
+	TypePing
+	TypePong
 )
 
-type ControlClientHello struct {
+type ClientHello struct {
 	EncryptMode string
 }
 
-type CipherKeyExchange struct {
+type ControlClientHello struct {
 	CipherKey []byte
+	AuthToken string
+	ClientID  crypto.UUID
 }
 
-type ClientIDExchange struct {
-	ClientID crypto.UUID
+type ControlServerHello struct {
+	ClientID  crypto.UUID
+	CipherKey []byte
 }
 
 type PipeClientHello struct {
@@ -105,18 +108,18 @@ func readMsg(r net.Conn, timeout time.Duration) (MsgType, interface{}, error) {
 	}
 
 	var out interface{}
-	if MsgType(header[0]) == TypeClientKeyExchange || MsgType(header[0]) == TypeServerKeyExchange {
-		out = new(CipherKeyExchange)
+	if MsgType(header[0]) == TypeControlClientHello {
+		out = new(ControlClientHello)
+	} else if MsgType(header[0]) == TypeControlServerHello {
+		out = new(ControlServerHello)
 	} else if MsgType(header[0]) == TypePipeClientHello {
 		out = new(PipeClientHello)
-	} else if MsgType(header[0]) == TypeClientID {
-		out = new(ClientIDExchange)
 	} else if MsgType(header[0]) == TypeSyncTunnels {
 		out = new(SyncTunnels)
 	} else if MsgType(header[0]) == TypePipeReq || MsgType(header[0]) == TypePing || MsgType(header[0]) == TypePong {
 		return MsgType(header[0]), nil, nil
-	} else if MsgType(header[0]) == TypeControlClientHello {
-		out = new(ControlClientHello)
+	} else if MsgType(header[0]) == TypeClientHello {
+		out = new(ClientHello)
 	} else {
 		return 0, nil, errors.Errorf("invalid msg type %d", header[0])
 	}
