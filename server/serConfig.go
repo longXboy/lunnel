@@ -27,7 +27,11 @@ type Config struct {
 	//aes:means exchange premaster key in aes mode
 	//tls:means exchange premaster key in tls mode
 	//default value is tls
-	EncryptMode string
+	EncryptMode  string
+	AuthEnable   bool
+	AuthUrl      string
+	NotifyEnable bool
+	NotifyUrl    string
 }
 
 var serverConf Config

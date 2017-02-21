@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Lunnel/contrib"
 	"Lunnel/crypto"
 	"Lunnel/msg"
 	"Lunnel/smux"
@@ -305,6 +306,12 @@ func (c *Control) moderator() {
 				HttpsMapLock.Unlock()
 			}
 		}
+		if serverConf.NotifyEnable {
+			err := contrib.RemoveMember(serverConf.ServerDomain, fmt.Sprintf("%s://%s:%d", t.tunnelConfig.Protocol, t.tunnelConfig.Hostname, t.tunnelConfig.RemotePort))
+			if err != nil {
+				log.WithFields(log.Fields{"err": err}).Errorln("notify remove member failed!")
+			}
+		}
 	}
 	idle := c.idlePipes
 	for {
@@ -498,6 +505,12 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 			}
 		}
 		sstm.Tunnels[name] = tempTunnel
+		if serverConf.NotifyEnable {
+			err = contrib.AddMember(serverConf.ServerDomain, fmt.Sprintf("%s://%s:%d", tempTunnel.Protocol, tempTunnel.Hostname, tempTunnel.RemotePort))
+			if err != nil {
+				log.WithFields(log.Fields{"err": err}).Errorln("notify add member failed!")
+			}
+		}
 	}
 	err = msg.WriteMsg(c.ctlConn, msg.TypeSyncTunnels, *sstm)
 	if err != nil {
@@ -512,33 +525,44 @@ func (c *Control) GenerateClientId() crypto.UUID {
 }
 
 func (c *Control) ServerHandShake() error {
-	var cidm msg.ControlServerHello
+	var shello msg.ControlServerHello
+	var chello *msg.ControlClientHello
+	mType, body, err := msg.ReadMsg(c.ctlConn)
+	if err != nil {
+		return errors.Wrap(err, "msg.ReadMsg")
+	}
+	if mType != msg.TypeControlClientHello {
+		return errors.Errorf("invalid msg type(%d),expect(%d)", mType, msg.TypeControlClientHello)
+	}
+	chello = body.(*msg.ControlClientHello)
+	if serverConf.AuthEnable {
+		isok, err := contrib.Auth(chello.AuthToken)
+		if err != nil {
+			return errors.Wrap(err, "contrib.Auth")
+		}
+		if !isok {
+			return errors.Errorf("auth failed!token:%s", chello.AuthToken)
+		}
+	}
 
 	if c.encryptMode != "none" {
-		mType, body, err := msg.ReadMsg(c.ctlConn)
-		if err != nil {
-			return errors.Wrap(err, "msg.ReadMsg")
-		}
-		if mType != msg.TypeControlClientHello {
-			return errors.Errorf("invalid msg type(%d),expect(%d)", mType, msg.TypeControlClientHello)
-		}
-		ckem := body.(*msg.ControlClientHello)
 		priv, keyMsg := crypto.GenerateKeyExChange()
 		if keyMsg == nil || priv == nil {
 			return errors.Errorf("crypto.GenerateKeyExChange error ,exchange key is nil")
 		}
-		preMasterSecret, err := crypto.ProcessKeyExchange(priv, ckem.CipherKey)
+		preMasterSecret, err := crypto.ProcessKeyExchange(priv, chello.CipherKey)
 		if err != nil {
 			return errors.Wrap(err, "crypto.ProcessKeyExchange")
 		}
 		c.preMasterSecret = preMasterSecret
-		cidm.CipherKey = keyMsg
+		shello.CipherKey = keyMsg
 	}
-	cidm.ClientID = c.GenerateClientId()
-	err := msg.WriteMsg(c.ctlConn, msg.TypeClientID, cidm)
+	shello.ClientID = c.GenerateClientId()
+	err = msg.WriteMsg(c.ctlConn, msg.TypeControlServerHello, shello)
 	if err != nil {
 		return errors.Wrap(err, "Write ClientId")
 	}
+
 	ControlMapLock.Lock()
 	ControlMap[c.ClientID] = c
 	ControlMapLock.Unlock()

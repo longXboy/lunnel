@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Lunnel/contrib"
 	"Lunnel/crypto"
 	"Lunnel/kcp"
 	"Lunnel/msg"
@@ -23,10 +24,15 @@ func main() {
 		rawLog.Fatalf("load config failed!err:=%v", err)
 	}
 	InitLog()
+	if serverConf.AuthEnable {
+		contrib.InitAuth(serverConf.AuthUrl)
+	}
+	if serverConf.NotifyEnable {
+		contrib.InitNotify(serverConf.NotifyUrl)
+	}
 
 	go serveHttp(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpPort))
 	go serveHttps(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpsPort))
-
 	lis, err := kcp.Listen(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort))
 	if err != nil {
 		log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "udp", "err": err}).Fatalln("server's control listen failed!")
@@ -41,7 +47,7 @@ func main() {
 					log.WithFields(log.Fields{"err": err}).Warningln("read handshake msg failed!")
 					return
 				}
-				if mType == msg.TypeControlClientHello {
+				if mType == msg.TypeClientHello {
 					smuxConfig := smux.DefaultConfig()
 					smuxConfig.MaxReceiveBuffer = 4194304
 					sess, err := smux.Server(conn, smuxConfig)

@@ -71,7 +71,7 @@ func main() {
 		var chello msg.ClientHello
 		chello.EncryptMode = cliConf.EncryptMode
 		fmt.Println("write msg client hello")
-		err = msg.WriteMsg(conn, msg.TypeControlClientHello, chello)
+		err = msg.WriteMsg(conn, msg.TypeClientHello, chello)
 		if err != nil {
 			conn.Close()
 			log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("write ControlClientHello failed!")

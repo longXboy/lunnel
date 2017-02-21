@@ -27,7 +27,7 @@ func Dial(addr string) (net.Conn, error) {
 	}
 	kcpconn.SetStreamMode(true)
 	kcpconn.SetNoDelay(noDelay, interval, resend, noCongestion)
-	kcpconn.SetWindowSize(512, 512)
+	kcpconn.SetWindowSize(1024, 1024)
 	kcpconn.SetMtu(udpSegmentSize)
 	kcpconn.SetACKNoDelay(true)
 	kcpconn.SetKeepAlive(10)
@@ -84,7 +84,7 @@ func (l *Listener) Accept() (net.Conn, error) {
 	conn.SetStreamMode(true)
 	conn.SetNoDelay(noDelay, interval, resend, noCongestion)
 	conn.SetMtu(udpSegmentSize)
-	conn.SetWindowSize(512, 512)
+	conn.SetWindowSize(1024, 1024)
 	conn.SetACKNoDelay(true)
 	conn.SetKeepAlive(10)
 	return conn, nil

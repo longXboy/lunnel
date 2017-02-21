@@ -16,7 +16,6 @@ const (
 	TypeClientHello MsgType = iota
 	TypeControlClientHello
 	TypeControlServerHello
-	TypeClientID
 	TypePipeClientHello
 	TypeSyncTunnels
 	TypePipeReq
