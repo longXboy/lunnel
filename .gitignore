@@ -3,3 +3,4 @@ cli/cli
 .idea
 .DS_Store
 assets/temp
+assets/log

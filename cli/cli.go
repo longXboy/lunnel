@@ -20,6 +20,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+var reconnectInterval int64 = 3
+
 func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 	pool := x509.NewCertPool()
 
@@ -64,7 +66,7 @@ func main() {
 		conn, err := CreateConn(cliConf.ServerAddr, true)
 		if err != nil {
 			log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("create ControlAddr conn failed!")
-			time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
+			time.Sleep(time.Duration(int64(time.Second) * reconnectInterval))
 			continue
 		}
 
@@ -75,7 +77,7 @@ func main() {
 		if err != nil {
 			conn.Close()
 			log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("write ControlClientHello failed!")
-			time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
+			time.Sleep(time.Duration(int64(time.Second) * reconnectInterval))
 			continue
 		}
 		smuxConfig := smux.DefaultConfig()
@@ -83,14 +85,14 @@ func main() {
 		sess, err := smux.Client(conn, smuxConfig)
 		if err != nil {
 			log.WithFields(log.Fields{"err": err}).Warnln("upgrade to smux.Client failed!")
-			time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
+			time.Sleep(time.Duration(int64(time.Second) * reconnectInterval))
 			continue
 		}
 		stream, err := sess.OpenStream("")
 		if err != nil {
 			sess.Close()
 			log.WithFields(log.Fields{"err": err}).Warnln("sess.OpenStream failed!")
-			time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
+			time.Sleep(time.Duration(int64(time.Second) * reconnectInterval))
 			continue
 		}
 		var ctl *Control
@@ -99,7 +101,7 @@ func main() {
 			if err != nil {
 				sess.Close()
 				log.WithFields(log.Fields{"trusted cert": cliConf.TrustedCert, "err": err}).Fatalln("load tls trusted cert failed!")
-				time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
+				time.Sleep(time.Duration(int64(time.Second) * reconnectInterval))
 				continue
 			}
 			tlsConfig.ServerName = cliConf.ServerName
@@ -110,7 +112,7 @@ func main() {
 			if err != nil {
 				sess.Close()
 				log.WithFields(log.Fields{"err": err}).Errorln("client hello,crypto.NewCryptoConn failed!")
-				time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
+				time.Sleep(time.Duration(int64(time.Second) * reconnectInterval))
 				continue
 			}
 			ctl = NewControl(cryptoConn, cliConf.EncryptMode)
@@ -119,14 +121,14 @@ func main() {
 		} else {
 			sess.Close()
 			log.WithFields(log.Fields{"encrypt_mode": cliConf.EncryptMode, "err": "invalid EncryptMode"}).Errorln("client hello failed!")
-			time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
+			time.Sleep(time.Duration(int64(time.Second) * reconnectInterval))
 			continue
 		}
 		err = ctl.ClientHandShake()
 		if err != nil {
 			sess.Close()
 			log.WithFields(log.Fields{"err": err}).Warnln("control.ClientHandShake failed!")
-			time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
+			time.Sleep(time.Duration(int64(time.Second) * reconnectInterval))
 			continue
 		}
 		fmt.Println("client handshake end")
@@ -134,12 +136,12 @@ func main() {
 		if err != nil {
 			sess.Close()
 			log.WithFields(log.Fields{"err": err}).Warnln("control.ClientSyncTunnels failed!")
-			time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
+			time.Sleep(time.Duration(int64(time.Second) * reconnectInterval))
 			continue
 		}
 		ctl.Run()
 		sess.Close()
-		time.Sleep(time.Duration(int64(time.Second) * cliConf.ReconnectInterval))
+		time.Sleep(time.Duration(int64(time.Second) * reconnectInterval))
 	}
 }
 

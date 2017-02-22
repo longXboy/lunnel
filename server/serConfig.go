@@ -6,32 +6,34 @@ import (
 	"io/ioutil"
 	rawLog "log"
 	"os"
+	"strings"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/pbkdf2"
+	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
-	Prod         bool
-	LogFile      string
-	ListenPort   int
-	ListenIP     string
-	HttpPort     uint16
-	HttpsPort    uint16
-	ServerDomain string
-	TlsCert      string
-	TlsKey       string
-	SecretKey    string
+	Prod         bool   `yaml:"prod,omitempty"`
+	LogFile      string `yaml:"log_file,omitempty"`
+	ListenPort   int    `yaml:"port,omitempty"`
+	ListenIP     string `yaml:"ip,omitempty"`
+	HttpPort     uint16 `yaml:"http_port,omitempty"`
+	HttpsPort    uint16 `yaml:"https_port,omitempty"`
+	ServerDomain string `yaml:"subdomian,omitempty"`
+	TlsCert      string `yaml:"tls_cert,omitempty"`
+	TlsKey       string `yaml:"tls_key,omitempty"`
+	SecretKey    string `yaml:"secret_key,omitempty"`
 	//none:means no encrypt
 	//aes:means exchange premaster key in aes mode
 	//tls:means exchange premaster key in tls mode
 	//default value is tls
-	EncryptMode  string
-	AuthEnable   bool
-	AuthUrl      string
-	NotifyEnable bool
-	NotifyUrl    string
+	EncryptMode  string `yaml:"encrypt_mode,omitempty"`
+	AuthEnable   bool   `yaml:"auth_enable,omitempty"`
+	AuthUrl      string `yaml:"auth_url,omitempty"`
+	NotifyEnable bool   `yaml:"notify_enable,omitempty"`
+	NotifyUrl    string `yaml:"notify_url,omitempty"`
 }
 
 var serverConf Config
@@ -42,9 +44,18 @@ func LoadConfig(configFile string) error {
 		if err != nil {
 			return errors.Wrap(err, "read config file")
 		}
-		err = json.Unmarshal(content, &serverConf)
-		if err != nil {
-			return errors.Wrap(err, "unmarshal config file")
+		if strings.HasSuffix(configFile, "json") {
+			err = json.Unmarshal(content, &serverConf)
+			if err != nil {
+				return errors.Wrap(err, "unmarshal config file using json style")
+			}
+		} else if strings.HasSuffix(configFile, "yml") || strings.HasSuffix(configFile, "yaml") {
+			err = yaml.Unmarshal(content, &serverConf)
+			if err != nil {
+				return errors.Wrap(err, "unmarshal config file using yaml style")
+			}
+		} else {
+			return errors.Errorf("invalid config format:%s", configFile)
 		}
 	}
 	if serverConf.ListenIP == "" {

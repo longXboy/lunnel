@@ -8,27 +8,28 @@ import (
 	rawLog "log"
 	"net"
 	"os"
+	"strings"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/pbkdf2"
+	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
-	Prod    bool
-	LogFile string
+	Prod    bool   `yaml:"prod,omitempty"`
+	LogFile string `yaml:"log_file,omitempty"`
 	//if EncryptMode is tls and ServerName is empty,ServerAddr can't be IP format
 	ServerAddr  string `yaml:"server_addr"`
-	ServerName  string
-	TrustedCert string
-	SecretKey   string
+	ServerName  string `yaml:"server_name,omitempty"`
+	TrustedCert string `yaml:"trusted_cert,omitempty"`
+	SecretKey   string `yaml:"secret_key,omitempty"`
 	//none:means no encrypt
 	//aes:means exchange premaster key in aes mode
 	//tls:means exchange premaster key in tls mode
 	//default value is tls
-	EncryptMode       string
-	Tunnels           map[string]msg.TunnelConfig `yaml:"tunnels"`
-	ReconnectInterval int64
+	EncryptMode string                      `yaml:"encrypt_mode,omitempty"`
+	Tunnels     map[string]msg.TunnelConfig `yaml:"tunnels"`
 }
 
 var cliConf Config
@@ -39,9 +40,18 @@ func LoadConfig(configFile string) error {
 		if err != nil {
 			return errors.Wrap(err, "read config file")
 		}
-		err = json.Unmarshal(content, &cliConf)
-		if err != nil {
-			return errors.Wrap(err, "unmarshal config file")
+		if strings.HasSuffix(configFile, "json") {
+			err = json.Unmarshal(content, &cliConf)
+			if err != nil {
+				return errors.Wrap(err, "unmarshal config file using json style")
+			}
+		} else if strings.HasSuffix(configFile, "yml") || strings.HasSuffix(configFile, "yaml") {
+			err = yaml.Unmarshal(content, &cliConf)
+			if err != nil {
+				return errors.Wrap(err, "unmarshal config file using yaml style")
+			}
+		} else {
+			return errors.Errorf("invalid config format:%s", configFile)
 		}
 	}
 	if cliConf.ServerAddr == "" {
@@ -66,9 +76,6 @@ func LoadConfig(configFile string) error {
 		if err != nil {
 			return errors.Wrap(err, "resovleServerName")
 		}
-	}
-	if cliConf.ReconnectInterval == 0 {
-		cliConf.ReconnectInterval = 3
 	}
 	if len(cliConf.Tunnels) == 0 {
 		return errors.New("you must specify at least one tunnel")

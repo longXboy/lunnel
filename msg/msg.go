@@ -44,8 +44,8 @@ type PipeClientHello struct {
 }
 
 type TunnelConfig struct {
-	Protocol   string `yaml:"proto,omitempty"`
-	LocalAddr  string `yaml:"local,omitempty"`
+	Protocol   string `yaml:"proto"`
+	LocalAddr  string `yaml:"local"`
 	Subdomain  string `yaml:"subdomain,omitempty"`
 	Hostname   string `yaml:"hostname,omitempty"`
 	HttpAuth   string `yaml:"auth,omitempty"`
