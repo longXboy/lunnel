@@ -1,5 +1,5 @@
 {
-    "memo": "1cfdc03bbfa3eac5684bbcad6e3bbf249539fa81b01ce3b97223581231cf56ad",
+    "memo": "6ef5f19c54ea45a8c1d8201407aa800aa773defb4093925ddbc61983cce18bf5",
     "projects": [
         {
             "name": "github.com/Sirupsen/logrus",
@@ -77,6 +77,14 @@
             "revision": "075e574b89e4c2d22f2286a7e2b919519c6f3547",
             "packages": [
                 "unix"
+            ]
+        },
+        {
+            "name": "gopkg.in/yaml.v2",
+            "branch": "v2",
+            "revision": "a3f3340b5840cee44f372bddb5880fcbc419b46a",
+            "packages": [
+                "."
             ]
         }
     ]
