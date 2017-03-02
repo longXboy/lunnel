@@ -30,6 +30,7 @@ type Config struct {
 	//default value is tls
 	EncryptMode string                      `yaml:"encrypt_mode,omitempty"`
 	Tunnels     map[string]msg.TunnelConfig `yaml:"tunnels"`
+	AuthToken   string                      `yaml:"auth_token"`
 }
 
 var cliConf Config

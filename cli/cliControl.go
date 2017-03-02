@@ -6,6 +6,7 @@ import (
 	"Lunnel/smux"
 	"Lunnel/util"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"net"
 	"sync/atomic"
@@ -161,7 +162,9 @@ func (c *Control) ClientSyncTunnels() error {
 	}
 	cstm = body.(*msg.SyncTunnels)
 	c.tunnels = cstm.Tunnels
-	log.WithFields(log.Fields{"tunnels": c.tunnels}).Infoln("client sync tunnel complete")
+	for _, v := range c.tunnels {
+		log.WithFields(log.Fields{"local": v.LocalAddr, "remote": fmt.Sprintf("%s://%s:%d", v.Protocol, v.Hostname, v.RemotePort)}).Infoln("client sync tunnel complete")
+	}
 	return nil
 }
 
@@ -249,7 +252,7 @@ func (c *Control) ClientHandShake() error {
 			return errors.New("GenerateKeyExChange error,key is nil")
 		}
 		ckem.CipherKey = keyMsg
-		ckem.AuthToken = ""
+		ckem.AuthToken = cliConf.AuthToken
 		err := msg.WriteMsg(c.ctlConn, msg.TypeControlClientHello, ckem)
 		if err != nil {
 			return errors.Wrap(err, "WriteMsg ckem")
