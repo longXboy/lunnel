@@ -506,9 +506,16 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 		}
 		sstm.Tunnels[name] = tempTunnel
 		if serverConf.NotifyEnable {
-			err = contrib.AddMember(serverConf.ServerDomain, fmt.Sprintf("%s://%s:%d", tempTunnel.Protocol, tempTunnel.Hostname, tempTunnel.RemotePort))
-			if err != nil {
-				log.WithFields(log.Fields{"err": err}).Errorln("notify add member failed!")
+			if tempTunnel.Protocol == "http" || tempTunnel.Protocol == "https" {
+				err = contrib.AddMember(serverConf.ServerDomain, fmt.Sprintf("%s://%s.%s:%d", tempTunnel.Protocol, tempTunnel.Subdomain, tempTunnel.Hostname, tempTunnel.RemotePort))
+				if err != nil {
+					log.WithFields(log.Fields{"err": err}).Errorln("notify add member failed!")
+				}
+			} else {
+				err = contrib.AddMember(serverConf.ServerDomain, fmt.Sprintf("%s://%s:%d", tempTunnel.Protocol, tempTunnel.Hostname, tempTunnel.RemotePort))
+				if err != nil {
+					log.WithFields(log.Fields{"err": err}).Errorln("notify add member failed!")
+				}
 			}
 		}
 	}

@@ -10,5 +10,5 @@ tunnels:
   2048_2: 
     proto: "tcp"
     local: "http://127.0.0.1:32768" 
-encrypt_mode: "tls"
+encrypt_mode: "aes"
 
