@@ -256,12 +256,13 @@ func (c *Control) ClientHandShake() error {
 			return errors.New("GenerateKeyExChange error,key is nil")
 		}
 		ckem.CipherKey = keyMsg
-		ckem.AuthToken = cliConf.AuthToken
-		err := msg.WriteMsg(c.ctlConn, msg.TypeControlClientHello, ckem)
-		if err != nil {
-			return errors.Wrap(err, "WriteMsg ckem")
-		}
 	}
+	ckem.AuthToken = cliConf.AuthToken
+	err := msg.WriteMsg(c.ctlConn, msg.TypeControlClientHello, ckem)
+	if err != nil {
+		return errors.Wrap(err, "WriteMsg ckem")
+	}
+
 	_, body, err := msg.ReadMsg(c.ctlConn)
 	if err != nil {
 		return errors.Wrap(err, "read ClientID")
