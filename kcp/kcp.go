@@ -10,13 +10,13 @@ import (
 
 var (
 	noDelay        = 0
-	interval       = 40
-	resend         = 0
-	noCongestion   = 0
+	interval       = 30
+	resend         = 2
+	noCongestion   = 1
 	SockBuf        = 4194304
 	dataShard      = 10
 	parityShard    = 3
-	udpSegmentSize = 1472
+	udpSegmentSize = 1350
 )
 
 func Dial(addr string) (net.Conn, error) {
@@ -27,7 +27,7 @@ func Dial(addr string) (net.Conn, error) {
 	}
 	kcpconn.SetStreamMode(true)
 	kcpconn.SetNoDelay(noDelay, interval, resend, noCongestion)
-	kcpconn.SetWindowSize(1024, 1024)
+	kcpconn.SetWindowSize(128, 1024)
 	kcpconn.SetMtu(udpSegmentSize)
 	kcpconn.SetACKNoDelay(true)
 

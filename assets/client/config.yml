@@ -1,14 +1,14 @@
 trusted_cert: "../assets/client/cacert.pem"
-server_addr: "lunnel.snakeoil.com:8080"
+server_addr: "10.1.4.157:8080"
 tunnels: 
   2048: 
     proto: "http"
-    local: "http://lunnel.snakeoil.com:32768" 
+    local: "http://10.1.4.58:32768" 
   docker: 
     proto: "http"
     local: "unix:///var/run/docker.sock"
   2048_2: 
     proto: "tcp"
-    local: "http://lunnel.snakeoil.com:32768" 
-encrypt_mode: "aes"
+    local: "http://10.1.4.58:32768" 
+encrypt_mode: "none"
 
