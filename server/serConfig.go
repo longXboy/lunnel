@@ -21,7 +21,7 @@ type Config struct {
 	ListenIP     string `yaml:"ip,omitempty"`
 	HttpPort     uint16 `yaml:"http_port,omitempty"`
 	HttpsPort    uint16 `yaml:"https_port,omitempty"`
-	ServerDomain string `yaml:"subdomian,omitempty"`
+	ServerDomain string `yaml:"server_domain,omitempty"`
 	TlsCert      string `yaml:"tls_cert,omitempty"`
 	TlsKey       string `yaml:"tls_key,omitempty"`
 	SecretKey    string `yaml:"secret_key,omitempty"`
