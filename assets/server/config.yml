@@ -1,2 +1,2 @@
 encrypt_mode: "aes"
-server_domain: "lunnel.snakeoil.com:8080"
+server_domain: "lunnel.snakeoil.com"
