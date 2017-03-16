@@ -30,7 +30,6 @@ func Dial(addr string) (net.Conn, error) {
 	kcpconn.SetWindowSize(1024, 1024)
 	kcpconn.SetMtu(udpSegmentSize)
 	kcpconn.SetACKNoDelay(true)
-	kcpconn.SetKeepAlive(10)
 
 	if err := kcpconn.SetDSCP(0); err != nil {
 		return nil, errors.Wrap(err, "kcpConn SetDSCP")
@@ -86,6 +85,5 @@ func (l *Listener) Accept() (net.Conn, error) {
 	conn.SetMtu(udpSegmentSize)
 	conn.SetWindowSize(1024, 1024)
 	conn.SetACKNoDelay(true)
-	conn.SetKeepAlive(10)
 	return conn, nil
 }

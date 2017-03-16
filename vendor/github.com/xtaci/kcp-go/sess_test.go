@@ -3,6 +3,7 @@ package kcp
 import (
 	"crypto/sha1"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 const portEcho = "127.0.0.1:9999"
 const portSink = "127.0.0.1:19999"
+const portTinyBufferEcho = "127.0.0.1:29999"
 const salt = "kcptest"
 
 var key = []byte("testkey")
@@ -29,6 +31,7 @@ func init() {
 
 	go echoServer()
 	go sinkServer()
+	go tinyBufferEchoServer()
 	println("beginning tests, encryption:salsa20, fec:10/3")
 }
 
@@ -44,11 +47,15 @@ func dialEcho() (*UDPSession, error) {
 	}
 
 	sess.SetStreamMode(true)
+	sess.SetStreamMode(false)
+	sess.SetStreamMode(true)
 	sess.SetWindowSize(4096, 4096)
 	sess.SetReadBuffer(4 * 1024 * 1024)
 	sess.SetWriteBuffer(4 * 1024 * 1024)
 	sess.SetStreamMode(true)
 	sess.SetNoDelay(1, 10, 2, 1)
+	sess.SetMtu(1400)
+	sess.SetMtu(1600)
 	sess.SetMtu(1400)
 	sess.SetACKNoDelay(true)
 	sess.SetDeadline(time.Now().Add(time.Minute))
@@ -78,6 +85,19 @@ func dialSink() (*UDPSession, error) {
 	return sess, err
 }
 
+func dialTinyBufferEcho() (*UDPSession, error) {
+	//block, _ := NewNoneBlockCrypt(pass)
+	//block, _ := NewSimpleXORBlockCrypt(pass)
+	//block, _ := NewTEABlockCrypt(pass[:16])
+	//block, _ := NewAESBlockCrypt(pass)
+	block, _ := NewSalsa20BlockCrypt(pass)
+	sess, err := DialWithOptions(portTinyBufferEcho, block, 10, 3)
+	if err != nil {
+		panic(err)
+	}
+	return sess, err
+}
+
 //////////////////////////
 
 func listenEcho() (net.Listener, error) {
@@ -87,6 +107,15 @@ func listenEcho() (net.Listener, error) {
 	//block, _ := NewAESBlockCrypt(pass)
 	block, _ := NewSalsa20BlockCrypt(pass)
 	return ListenWithOptions(portEcho, block, 10, 3)
+}
+
+func listenTinyBufferEcho() (net.Listener, error) {
+	//block, _ := NewNoneBlockCrypt(pass)
+	//block, _ := NewSimpleXORBlockCrypt(pass)
+	//block, _ := NewTEABlockCrypt(pass[:16])
+	//block, _ := NewAESBlockCrypt(pass)
+	block, _ := NewSalsa20BlockCrypt(pass)
+	return ListenWithOptions(portTinyBufferEcho, block, 10, 3)
 }
 
 func listenSink() (net.Listener, error) {
@@ -118,7 +147,6 @@ func echoServer() {
 			// coverage test
 			s.(*UDPSession).SetReadBuffer(4 * 1024 * 1024)
 			s.(*UDPSession).SetWriteBuffer(4 * 1024 * 1024)
-			s.(*UDPSession).SetKeepAlive(1)
 			go handleEcho(s.(*UDPSession))
 		}
 	}()
@@ -142,6 +170,23 @@ func sinkServer() {
 			}
 
 			go handleSink(s.(*UDPSession))
+		}
+	}()
+}
+
+func tinyBufferEchoServer() {
+	l, err := listenTinyBufferEcho()
+	if err != nil {
+		panic(err)
+	}
+
+	go func() {
+		for {
+			s, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go handleTinyBufferEcho(s.(*UDPSession))
 		}
 	}()
 }
@@ -185,6 +230,18 @@ func handleSink(conn *UDPSession) {
 	}
 }
 
+func handleTinyBufferEcho(conn *UDPSession) {
+	conn.SetStreamMode(true)
+	buf := make([]byte, 2)
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
+			panic(err)
+		}
+		conn.Write(buf[:n])
+	}
+}
+
 ///////////////////////////
 
 func TestTimeout(t *testing.T) {
@@ -220,6 +277,46 @@ func TestSendRecv(t *testing.T) {
 		cli.Write([]byte(msg))
 		if n, err := cli.Read(buf); err == nil {
 			if string(buf[:n]) != msg {
+				t.Fail()
+			}
+		} else {
+			panic(err)
+		}
+	}
+	cli.Close()
+}
+
+func TestTinyBufferReceiver(t *testing.T) {
+	cli, err := dialTinyBufferEcho()
+	if err != nil {
+		panic(err)
+	}
+	const N = 100
+	snd := byte(0)
+	fillBuffer := func(buf []byte) {
+		for i := 0; i < len(buf); i++ {
+			buf[i] = snd
+			snd++
+		}
+	}
+
+	rcv := byte(0)
+	check := func(buf []byte) bool {
+		for i := 0; i < len(buf); i++ {
+			if buf[i] != rcv {
+				return false
+			}
+			rcv++
+		}
+		return true
+	}
+	sndbuf := make([]byte, 7)
+	rcvbuf := make([]byte, 7)
+	for i := 0; i < N; i++ {
+		fillBuffer(sndbuf)
+		cli.Write(sndbuf)
+		if n, err := io.ReadFull(cli, rcvbuf); err == nil {
+			if !check(rcvbuf[:n]) {
 				t.Fail()
 			}
 		} else {
@@ -288,6 +385,7 @@ func BenchmarkEchoSpeed1M(b *testing.B) {
 }
 
 func speedclient(b *testing.B, nbytes int) {
+	b.ReportAllocs()
 	cli, err := dialEcho()
 	if err != nil {
 		panic(err)
@@ -316,6 +414,7 @@ func BenchmarkSinkSpeed1M(b *testing.B) {
 }
 
 func sinkclient(b *testing.B, nbytes int) {
+	b.ReportAllocs()
 	cli, err := dialSink()
 	if err != nil {
 		panic(err)
@@ -326,9 +425,9 @@ func sinkclient(b *testing.B, nbytes int) {
 }
 
 func echo_tester(cli net.Conn, msglen, msgcount int) error {
+	buf := make([]byte, msglen)
 	for i := 0; i < msgcount; i++ {
 		// send packet
-		buf := make([]byte, msglen)
 		if _, err := cli.Write(buf); err != nil {
 			return err
 		}
@@ -365,12 +464,11 @@ func sink_tester(cli *UDPSession, msglen, msgcount int) error {
 		waitsnd := cli.kcp.WaitSnd()
 		cli.mu.Unlock()
 		if waitsnd != 0 {
-			<-time.After(100 * time.Millisecond)
+			<-time.After(10 * time.Millisecond)
 		} else {
 			return nil
 		}
 	}
-	return nil
 }
 
 func TestSNMP(t *testing.T) {

@@ -1,10 +1,10 @@
 {
-    "memo": "6ef5f19c54ea45a8c1d8201407aa800aa773defb4093925ddbc61983cce18bf5",
+    "memo": "99667e343b448ce09d7d7688cb4849d359fd2f2812a29867bbac0189fd9be6d6",
     "projects": [
         {
             "name": "github.com/Sirupsen/logrus",
-            "version": "v0.11.4",
-            "revision": "0208149b40d863d2c1a2f8fe5753096a9cf2cc8b",
+            "version": "v0.11.5",
+            "revision": "ba1b36c82c5e05c4f912a88eab0dcd91a171688f",
             "packages": [
                 "."
             ]
@@ -43,8 +43,8 @@
         },
         {
             "name": "github.com/xtaci/kcp-go",
-            "version": "v2.21",
-            "revision": "bf95749e1be2a3f152ba0004eae0c4f47fbf1251",
+            "version": "v3.7",
+            "revision": "0f3b8d2b55c20ca9b5065a30428473737552492e",
             "packages": [
                 "."
             ]
