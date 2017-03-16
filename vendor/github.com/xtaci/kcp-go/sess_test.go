@@ -14,103 +14,181 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
-const port = "127.0.0.1:9999"
+const portEcho = "127.0.0.1:9999"
+const portSink = "127.0.0.1:19999"
 const salt = "kcptest"
 
 var key = []byte("testkey")
 var fec = 4
+var pass = pbkdf2.Key(key, []byte(portSink), 4096, 32, sha1.New)
 
 func init() {
 	go func() {
 		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
-	go server()
-	<-time.After(1 * time.Second)
+
+	go echoServer()
+	go sinkServer()
+	println("beginning tests, encryption:salsa20, fec:10/3")
 }
 
-func DialTest() (*UDPSession, error) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 32, sha1.New)
-	block, _ := NewNoneBlockCrypt(pass)
+func dialEcho() (*UDPSession, error) {
+	//block, _ := NewNoneBlockCrypt(pass)
 	//block, _ := NewSimpleXORBlockCrypt(pass)
 	//block, _ := NewTEABlockCrypt(pass[:16])
 	//block, _ := NewAESBlockCrypt(pass)
-	return DialWithOptions(port, block, 10, 3)
-}
-
-func DialTest2() (*UDPSession, error) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 32, sha1.New)
-	block, _ := NewNoneBlockCrypt(pass)
-	//block, _ := NewSimpleXORBlockCrypt(pass)
-	//block, _ := NewTEABlockCrypt(pass[:16])
-	//block, _ := NewAESBlockCrypt(pass)
-	return DialWithOptions(port, block, 10, 3)
-}
-
-// all uncovered codes
-func TestCoverage(t *testing.T) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 32, sha1.New)
-	block, _ := NewAESBlockCrypt(pass)
-	DialWithOptions("127.0.0.1:100000", block, 0, 0)
-}
-
-func ListenTest() (net.Listener, error) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 32, sha1.New)
-	block, _ := NewNoneBlockCrypt(pass)
-	//block, _ := NewSimpleXORBlockCrypt(pass)
-	//block, _ := NewTEABlockCrypt(pass[:16])
-	//block, _ := NewAESBlockCrypt(pass)
-	return ListenWithOptions(port, block, 10, 3)
-}
-
-func server() {
-	l, err := ListenTest()
+	block, _ := NewSalsa20BlockCrypt(pass)
+	sess, err := DialWithOptions(portEcho, block, 10, 3)
 	if err != nil {
 		panic(err)
 	}
 
-	kcplistener := l.(*Listener)
-	kcplistener.SetReadBuffer(16 * 1024 * 1024)
-	kcplistener.SetWriteBuffer(16 * 1024 * 1024)
-	kcplistener.SetDSCP(46)
-	log.Println("listening on:", kcplistener.conn.LocalAddr())
-	for {
-		s, err := l.Accept()
-		if err != nil {
-			panic(err)
-		}
-
-		// coverage test
-		s.(*UDPSession).SetReadBuffer(16 * 1024 * 1024)
-		s.(*UDPSession).SetWriteBuffer(16 * 1024 * 1024)
-		s.(*UDPSession).SetKeepAlive(1)
-		go handleClient(s.(*UDPSession))
-	}
+	sess.SetStreamMode(true)
+	sess.SetWindowSize(4096, 4096)
+	sess.SetReadBuffer(4 * 1024 * 1024)
+	sess.SetWriteBuffer(4 * 1024 * 1024)
+	sess.SetStreamMode(true)
+	sess.SetNoDelay(1, 10, 2, 1)
+	sess.SetMtu(1400)
+	sess.SetACKNoDelay(true)
+	sess.SetDeadline(time.Now().Add(time.Minute))
+	return sess, err
 }
 
-func handleClient(conn *UDPSession) {
+func dialSink() (*UDPSession, error) {
+	block, _ := NewNoneBlockCrypt(pass)
+	//block, _ := NewSimpleXORBlockCrypt(pass)
+	//block, _ := NewTEABlockCrypt(pass[:16])
+	//block, _ := NewAESBlockCrypt(pass)
+	//block, _ := NewSalsa20BlockCrypt(pass)
+	sess, err := DialWithOptions(portSink, block, 10, 3)
+	if err != nil {
+		panic(err)
+	}
+
+	sess.SetStreamMode(true)
+	sess.SetWindowSize(4096, 4096)
+	sess.SetReadBuffer(4 * 1024 * 1024)
+	sess.SetWriteBuffer(4 * 1024 * 1024)
+	sess.SetStreamMode(true)
+	sess.SetNoDelay(1, 10, 2, 1)
+	sess.SetMtu(1400)
+	sess.SetACKNoDelay(true)
+	sess.SetDeadline(time.Now().Add(time.Minute))
+	return sess, err
+}
+
+//////////////////////////
+
+func listenEcho() (net.Listener, error) {
+	//block, _ := NewNoneBlockCrypt(pass)
+	//block, _ := NewSimpleXORBlockCrypt(pass)
+	//block, _ := NewTEABlockCrypt(pass[:16])
+	//block, _ := NewAESBlockCrypt(pass)
+	block, _ := NewSalsa20BlockCrypt(pass)
+	return ListenWithOptions(portEcho, block, 10, 3)
+}
+
+func listenSink() (net.Listener, error) {
+	block, _ := NewNoneBlockCrypt(pass)
+	//block, _ := NewSimpleXORBlockCrypt(pass)
+	//block, _ := NewTEABlockCrypt(pass[:16])
+	//block, _ := NewAESBlockCrypt(pass)
+	//block, _ := NewSalsa20BlockCrypt(pass)
+	return ListenWithOptions(portSink, block, 10, 3)
+}
+
+func echoServer() {
+	l, err := listenEcho()
+	if err != nil {
+		panic(err)
+	}
+
+	go func() {
+		kcplistener := l.(*Listener)
+		kcplistener.SetReadBuffer(4 * 1024 * 1024)
+		kcplistener.SetWriteBuffer(4 * 1024 * 1024)
+		kcplistener.SetDSCP(46)
+		for {
+			s, err := l.Accept()
+			if err != nil {
+				return
+			}
+
+			// coverage test
+			s.(*UDPSession).SetReadBuffer(4 * 1024 * 1024)
+			s.(*UDPSession).SetWriteBuffer(4 * 1024 * 1024)
+			s.(*UDPSession).SetKeepAlive(1)
+			go handleEcho(s.(*UDPSession))
+		}
+	}()
+}
+
+func sinkServer() {
+	l, err := listenSink()
+	if err != nil {
+		panic(err)
+	}
+
+	go func() {
+		kcplistener := l.(*Listener)
+		kcplistener.SetReadBuffer(4 * 1024 * 1024)
+		kcplistener.SetWriteBuffer(4 * 1024 * 1024)
+		kcplistener.SetDSCP(46)
+		for {
+			s, err := l.Accept()
+			if err != nil {
+				return
+			}
+
+			go handleSink(s.(*UDPSession))
+		}
+	}()
+}
+
+///////////////////////////
+
+func handleEcho(conn *UDPSession) {
 	conn.SetStreamMode(true)
-	conn.SetWindowSize(1024, 1024)
-	conn.SetNoDelay(1, 20, 2, 1)
+	conn.SetWindowSize(4096, 4096)
+	conn.SetNoDelay(1, 10, 2, 1)
 	conn.SetDSCP(46)
-	conn.SetMtu(1450)
+	conn.SetMtu(1400)
 	conn.SetACKNoDelay(false)
 	conn.SetReadDeadline(time.Now().Add(time.Hour))
 	conn.SetWriteDeadline(time.Now().Add(time.Hour))
-	fmt.Println("new client", conn.RemoteAddr())
 	buf := make([]byte, 65536)
-	count := 0
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
 			panic(err)
 		}
-		count++
 		conn.Write(buf[:n])
 	}
 }
 
+func handleSink(conn *UDPSession) {
+	conn.SetStreamMode(true)
+	conn.SetWindowSize(4096, 4096)
+	conn.SetNoDelay(1, 10, 2, 1)
+	conn.SetDSCP(46)
+	conn.SetMtu(1400)
+	conn.SetACKNoDelay(false)
+	conn.SetReadDeadline(time.Now().Add(time.Hour))
+	conn.SetWriteDeadline(time.Now().Add(time.Hour))
+	buf := make([]byte, 65536)
+	for {
+		_, err := conn.Read(buf)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+///////////////////////////
+
 func TestTimeout(t *testing.T) {
-	cli, err := DialTest()
+	cli, err := dialEcho()
 	if err != nil {
 		panic(err)
 	}
@@ -127,10 +205,32 @@ func TestTimeout(t *testing.T) {
 	if n != 0 || err == nil {
 		t.Fail()
 	}
+	cli.Close()
+}
+
+func TestSendRecv(t *testing.T) {
+	cli, err := dialEcho()
+	if err != nil {
+		panic(err)
+	}
+	const N = 100
+	buf := make([]byte, 10)
+	for i := 0; i < N; i++ {
+		msg := fmt.Sprintf("hello%v", i)
+		cli.Write([]byte(msg))
+		if n, err := cli.Read(buf); err == nil {
+			if string(buf[:n]) != msg {
+				t.Fail()
+			}
+		} else {
+			panic(err)
+		}
+	}
+	cli.Close()
 }
 
 func TestClose(t *testing.T) {
-	cli, err := DialTest()
+	cli, err := dialEcho()
 	if err != nil {
 		panic(err)
 	}
@@ -148,161 +248,135 @@ func TestClose(t *testing.T) {
 	if n != 0 || err == nil {
 		t.Fail()
 	}
-}
-
-func TestSendRecv(t *testing.T) {
-	var wg sync.WaitGroup
-	const par = 1
-	wg.Add(par)
-	for i := 0; i < par; i++ {
-		go client(&wg)
-	}
-	wg.Wait()
-}
-
-func client(wg *sync.WaitGroup) {
-	cli, err := DialTest()
-	if err != nil {
-		panic(err)
-	}
-	cli.SetReadBuffer(16 * 1024 * 1024)
-	cli.SetWriteBuffer(16 * 1024 * 1024)
-	cli.SetStreamMode(true)
-	cli.SetNoDelay(1, 20, 2, 1)
-	cli.SetACKNoDelay(true)
-	cli.SetDeadline(time.Now().Add(time.Minute))
-	const N = 100
-	buf := make([]byte, 10)
-	for i := 0; i < N; i++ {
-		msg := fmt.Sprintf("hello%v", i)
-		fmt.Println("sent:", msg)
-		cli.Write([]byte(msg))
-		if n, err := cli.Read(buf); err == nil {
-			fmt.Println("recv:", string(buf[:n]))
-		} else {
-			panic(err)
-		}
-	}
 	cli.Close()
-	wg.Done()
 }
 
-func TestBigPacket(t *testing.T) {
+func TestParallel1024CLIENT_64BMSG_64CNT(t *testing.T) {
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go client2(&wg)
+	wg.Add(1024)
+	for i := 0; i < 1024; i++ {
+		go parallel_client(&wg)
+	}
 	wg.Wait()
 }
 
-func client2(wg *sync.WaitGroup) {
-	cli, err := DialTest()
+func parallel_client(wg *sync.WaitGroup) (err error) {
+	cli, err := dialEcho()
 	if err != nil {
 		panic(err)
 	}
-	cli.SetNoDelay(1, 20, 2, 1)
-	const N = 10
-	buf := make([]byte, 1024*512)
-	msg := make([]byte, 1024*512)
-	for i := 0; i < N; i++ {
-		cli.Write(msg)
-	}
-	println("total written:", len(msg)*N)
 
-	nrecv := 0
-	cli.SetReadDeadline(time.Now().Add(3 * time.Second))
-	for {
-		n, err := cli.Read(buf)
-		if err != nil {
-			break
-		} else {
-			nrecv += n
-			if nrecv == len(msg)*N {
-				break
-			}
+	err = echo_tester(cli, 64, 64)
+	wg.Done()
+	return
+}
+
+func BenchmarkEchoSpeed4K(b *testing.B) {
+	speedclient(b, 4096)
+}
+
+func BenchmarkEchoSpeed64K(b *testing.B) {
+	speedclient(b, 65536)
+}
+
+func BenchmarkEchoSpeed512K(b *testing.B) {
+	speedclient(b, 524288)
+}
+
+func BenchmarkEchoSpeed1M(b *testing.B) {
+	speedclient(b, 1048576)
+}
+
+func speedclient(b *testing.B, nbytes int) {
+	cli, err := dialEcho()
+	if err != nil {
+		panic(err)
+	}
+
+	if err := echo_tester(cli, nbytes, b.N); err != nil {
+		b.Fail()
+	}
+	b.SetBytes(int64(nbytes))
+}
+
+func BenchmarkSinkSpeed4K(b *testing.B) {
+	sinkclient(b, 4096)
+}
+
+func BenchmarkSinkSpeed64K(b *testing.B) {
+	sinkclient(b, 65536)
+}
+
+func BenchmarkSinkSpeed256K(b *testing.B) {
+	sinkclient(b, 524288)
+}
+
+func BenchmarkSinkSpeed1M(b *testing.B) {
+	sinkclient(b, 1048576)
+}
+
+func sinkclient(b *testing.B, nbytes int) {
+	cli, err := dialSink()
+	if err != nil {
+		panic(err)
+	}
+
+	sink_tester(cli, nbytes, b.N)
+	b.SetBytes(int64(nbytes))
+}
+
+func echo_tester(cli net.Conn, msglen, msgcount int) error {
+	for i := 0; i < msgcount; i++ {
+		// send packet
+		buf := make([]byte, msglen)
+		if _, err := cli.Write(buf); err != nil {
+			return err
 		}
-	}
 
-	println("total recv:", nrecv)
-	cli.Close()
-	wg.Done()
-}
-
-func TestSpeed(t *testing.T) {
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go client3(&wg)
-	wg.Wait()
-}
-
-func client3(wg *sync.WaitGroup) {
-	cli, err := DialTest2()
-	if err != nil {
-		panic(err)
-	}
-	log.Println("remote:", cli.RemoteAddr(), "local:", cli.LocalAddr())
-	log.Println("conv:", cli.GetConv())
-	cli.SetNoDelay(1, 20, 2, 1)
-	start := time.Now()
-
-	go func() {
-		buf := make([]byte, 1024*1024)
+		// receive packet
 		nrecv := 0
 		for {
 			n, err := cli.Read(buf)
 			if err != nil {
-				fmt.Println(err)
-				break
+				return err
 			} else {
 				nrecv += n
-				if nrecv == 4096*4096 {
+				if nrecv == msglen {
 					break
 				}
 			}
 		}
-		println("total recv:", nrecv)
-		cli.Close()
-		fmt.Println("time for 16MB rtt with encryption", time.Now().Sub(start))
-		fmt.Printf("%+v\n", DefaultSnmp.Copy())
-		fmt.Println(DefaultSnmp.Header())
-		fmt.Println(DefaultSnmp.ToSlice())
-		DefaultSnmp.Reset()
-		fmt.Println(DefaultSnmp.ToSlice())
-		wg.Done()
-	}()
-	msg := make([]byte, 4096)
-	cli.SetWindowSize(1024, 1024)
-	for i := 0; i < 4096; i++ {
-		cli.Write(msg)
 	}
+	return nil
 }
 
-func TestParallel(t *testing.T) {
-	par := 200
-	var wg sync.WaitGroup
-	wg.Add(par)
-	fmt.Println("testing parallel", par, "connections")
-	for i := 0; i < par; i++ {
-		go client4(&wg)
-	}
-	wg.Wait()
-}
-
-func client4(wg *sync.WaitGroup) {
-	cli, err := DialTest()
-	if err != nil {
-		panic(err)
-	}
-	const N = 100
-	cli.SetNoDelay(1, 20, 2, 1)
-	buf := make([]byte, 10)
-	for i := 0; i < N; i++ {
-		msg := fmt.Sprintf("hello%v", i)
-		cli.Write([]byte(msg))
-		if _, err := cli.Read(buf); err != nil {
-			break
+func sink_tester(cli *UDPSession, msglen, msgcount int) error {
+	// sender
+	buf := make([]byte, msglen)
+	for i := 0; i < msgcount; i++ {
+		if _, err := cli.Write(buf); err != nil {
+			return err
 		}
-		<-time.After(10 * time.Millisecond)
 	}
-	cli.Close()
-	wg.Done()
+
+	// window checker
+	for {
+		cli.mu.Lock()
+		waitsnd := cli.kcp.WaitSnd()
+		cli.mu.Unlock()
+		if waitsnd != 0 {
+			<-time.After(100 * time.Millisecond)
+		} else {
+			return nil
+		}
+	}
+	return nil
+}
+
+func TestSNMP(t *testing.T) {
+	t.Log(DefaultSnmp.Copy())
+	t.Log(DefaultSnmp.Header())
+	t.Log(DefaultSnmp.ToSlice())
+	DefaultSnmp.Reset()
+	t.Log(DefaultSnmp.ToSlice())
 }

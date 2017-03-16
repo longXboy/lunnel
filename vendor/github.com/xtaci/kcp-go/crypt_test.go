@@ -14,7 +14,7 @@ const cryptKey = "testkey"
 const cryptSalt = "kcptest"
 
 func TestAES(t *testing.T) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 32, sha1.New)
+	pass := pbkdf2.Key(key, []byte(portSink), 4096, 32, sha1.New)
 	bc, err := NewAESBlockCrypt(pass)
 	if err != nil {
 		t.Fatal(err)
@@ -47,6 +47,7 @@ func BenchmarkAES128(b *testing.B) {
 		bc.Encrypt(enc, data)
 		bc.Decrypt(dec, enc)
 	}
+	b.SetBytes(int64(len(enc) * 2))
 }
 
 func BenchmarkAES192(b *testing.B) {
@@ -66,6 +67,7 @@ func BenchmarkAES192(b *testing.B) {
 		bc.Encrypt(enc, data)
 		bc.Decrypt(dec, enc)
 	}
+	b.SetBytes(int64(len(enc) * 2))
 }
 
 func BenchmarkAES256(b *testing.B) {
@@ -85,10 +87,11 @@ func BenchmarkAES256(b *testing.B) {
 		bc.Encrypt(enc, data)
 		bc.Decrypt(dec, enc)
 	}
+	b.SetBytes(int64(len(enc) * 2))
 }
 
 func TestTEA(t *testing.T) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 16, sha1.New)
+	pass := pbkdf2.Key(key, []byte(portSink), 4096, 16, sha1.New)
 	bc, err := NewTEABlockCrypt(pass)
 	if err != nil {
 		t.Fatal(err)
@@ -122,10 +125,11 @@ func BenchmarkTEA(b *testing.B) {
 		bc.Encrypt(enc, data)
 		bc.Decrypt(dec, enc)
 	}
+	b.SetBytes(int64(len(enc) * 2))
 }
 
-func TestSimpleXOR(t *testing.T) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 32, sha1.New)
+func TestXOR(t *testing.T) {
+	pass := pbkdf2.Key(key, []byte(portSink), 4096, 32, sha1.New)
 	bc, err := NewSimpleXORBlockCrypt(pass)
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +145,7 @@ func TestSimpleXOR(t *testing.T) {
 	}
 }
 
-func BenchmarkSimpleXOR(b *testing.B) {
+func BenchmarkXOR(b *testing.B) {
 	pass := make([]byte, 32)
 	io.ReadFull(rand.Reader, pass)
 	bc, err := NewSimpleXORBlockCrypt(pass)
@@ -158,10 +162,11 @@ func BenchmarkSimpleXOR(b *testing.B) {
 		bc.Encrypt(enc, data)
 		bc.Decrypt(dec, enc)
 	}
+	b.SetBytes(int64(len(enc) * 2))
 }
 
 func TestBlowfish(t *testing.T) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 32, sha1.New)
+	pass := pbkdf2.Key(key, []byte(portSink), 4096, 32, sha1.New)
 	bc, err := NewBlowfishBlockCrypt(pass)
 	if err != nil {
 		t.Fatal(err)
@@ -194,10 +199,11 @@ func BenchmarkBlowfish(b *testing.B) {
 		bc.Encrypt(enc, data)
 		bc.Decrypt(dec, enc)
 	}
+	b.SetBytes(int64(len(enc) * 2))
 }
 
 func TestNone(t *testing.T) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 32, sha1.New)
+	pass := pbkdf2.Key(key, []byte(portSink), 4096, 32, sha1.New)
 	bc, err := NewNoneBlockCrypt(pass)
 	if err != nil {
 		t.Fatal(err)
@@ -230,10 +236,11 @@ func BenchmarkNone(b *testing.B) {
 		bc.Encrypt(enc, data)
 		bc.Decrypt(dec, enc)
 	}
+	b.SetBytes(int64(len(enc) * 2))
 }
 
 func TestCast5(t *testing.T) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 16, sha1.New)
+	pass := pbkdf2.Key(key, []byte(portSink), 4096, 16, sha1.New)
 	bc, err := NewCast5BlockCrypt(pass)
 	if err != nil {
 		t.Fatal(err)
@@ -266,10 +273,11 @@ func BenchmarkCast5(b *testing.B) {
 		bc.Encrypt(enc, data)
 		bc.Decrypt(dec, enc)
 	}
+	b.SetBytes(int64(len(enc) * 2))
 }
 
-func TestTripleDES(t *testing.T) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 24, sha1.New)
+func Test3DES(t *testing.T) {
+	pass := pbkdf2.Key(key, []byte(portSink), 4096, 24, sha1.New)
 	bc, err := NewTripleDESBlockCrypt(pass)
 	if err != nil {
 		t.Fatal(err)
@@ -285,7 +293,7 @@ func TestTripleDES(t *testing.T) {
 	}
 }
 
-func BenchmarkTripleDES(b *testing.B) {
+func Benchmark3DES(b *testing.B) {
 	pass := make([]byte, 24)
 	io.ReadFull(rand.Reader, pass)
 	bc, err := NewTripleDESBlockCrypt(pass)
@@ -302,10 +310,11 @@ func BenchmarkTripleDES(b *testing.B) {
 		bc.Encrypt(enc, data)
 		bc.Decrypt(dec, enc)
 	}
+	b.SetBytes(int64(len(enc) * 2))
 }
 
 func TestTwofish(t *testing.T) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 32, sha1.New)
+	pass := pbkdf2.Key(key, []byte(portSink), 4096, 32, sha1.New)
 	bc, err := NewTwofishBlockCrypt(pass)
 	if err != nil {
 		t.Fatal(err)
@@ -338,10 +347,11 @@ func BenchmarkTwofish(b *testing.B) {
 		bc.Encrypt(enc, data)
 		bc.Decrypt(dec, enc)
 	}
+	b.SetBytes(int64(len(enc) * 2))
 }
 
 func TestXTEA(t *testing.T) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 16, sha1.New)
+	pass := pbkdf2.Key(key, []byte(portSink), 4096, 16, sha1.New)
 	bc, err := NewXTEABlockCrypt(pass)
 	if err != nil {
 		t.Fatal(err)
@@ -375,10 +385,11 @@ func BenchmarkXTEA(b *testing.B) {
 		bc.Encrypt(enc, data)
 		bc.Decrypt(dec, enc)
 	}
+	b.SetBytes(int64(len(enc) * 2))
 }
 
 func TestSalsa20(t *testing.T) {
-	pass := pbkdf2.Key(key, []byte(salt), 4096, 32, sha1.New)
+	pass := pbkdf2.Key(key, []byte(portSink), 4096, 32, sha1.New)
 	bc, err := NewSalsa20BlockCrypt(pass)
 	if err != nil {
 		t.Fatal(err)
@@ -411,4 +422,5 @@ func BenchmarkSalsa20(b *testing.B) {
 		bc.Encrypt(enc, data)
 		bc.Decrypt(dec, enc)
 	}
+	b.SetBytes(int64(len(enc) * 2))
 }

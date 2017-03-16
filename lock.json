@@ -3,8 +3,8 @@
     "projects": [
         {
             "name": "github.com/Sirupsen/logrus",
-            "version": "v0.11.2",
-            "revision": "c078b1e43f58d563c74cebe63c85789e76ddb627",
+            "version": "v0.11.4",
+            "revision": "0208149b40d863d2c1a2f8fe5753096a9cf2cc8b",
             "packages": [
                 "."
             ]
@@ -43,8 +43,8 @@
         },
         {
             "name": "github.com/xtaci/kcp-go",
-            "version": "v2.18",
-            "revision": "39bec2a73d46f2e0e104f94d7411e2cc63b1e6d3",
+            "version": "v2.21",
+            "revision": "bf95749e1be2a3f152ba0004eae0c4f47fbf1251",
             "packages": [
                 "."
             ]
@@ -52,12 +52,13 @@
         {
             "name": "golang.org/x/crypto",
             "branch": "master",
-            "revision": "453249f01cfeb54c3d549ddb75ff152ca243f9d8",
+            "revision": "728b753d0135da6801d45a38e6f43ff55779c5c2",
             "packages": [
                 "blowfish",
                 "cast5",
                 "pbkdf2",
                 "salsa20",
+                "salsa20/salsa",
                 "tea",
                 "twofish",
                 "xtea"
@@ -66,15 +67,18 @@
         {
             "name": "golang.org/x/net",
             "branch": "master",
-            "revision": "6b27048ae5e6ad1ef927e72e437531493de612fe",
+            "revision": "a6577fac2d73be281a500b310739095313165611",
             "packages": [
+                "bpf",
+                "internal/iana",
+                "internal/netreflect",
                 "ipv4"
             ]
         },
         {
             "name": "golang.org/x/sys",
             "branch": "master",
-            "revision": "075e574b89e4c2d22f2286a7e2b919519c6f3547",
+            "revision": "99f16d856c9836c42d24e7ab64ea72916925fa97",
             "packages": [
                 "unix"
             ]

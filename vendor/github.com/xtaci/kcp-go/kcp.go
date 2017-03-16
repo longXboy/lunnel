@@ -72,17 +72,15 @@ func ikcp_decode32u(p []byte, l *uint32) []byte {
 func _imin_(a, b uint32) uint32 {
 	if a <= b {
 		return a
-	} else {
-		return b
 	}
+	return b
 }
 
 func _imax_(a, b uint32) uint32 {
 	if a >= b {
 		return a
-	} else {
-		return b
 	}
+	return b
 }
 
 func _ibound_(lower, middle, upper uint32) uint32 {
@@ -145,8 +143,9 @@ type KCP struct {
 
 	acklist []ackItem
 
-	buffer []byte
-	output Output
+	buffer                 []byte
+	output                 Output
+	datashard, parityshard int
 }
 
 type ackItem struct {
@@ -400,7 +399,7 @@ func (kcp *KCP) parse_fastack(sn uint32) {
 		seg := &kcp.snd_buf[k]
 		if _itimediff(sn, seg.sn) < 0 {
 			break
-		} else if sn != seg.sn { //  && kcp.current >= seg.ts+kcp.rx_srtt {
+		} else if sn != seg.sn {
 			seg.fastack++
 		}
 	}
@@ -478,16 +477,16 @@ func (kcp *KCP) parse_data(newseg *Segment) {
 
 // Input when you received a low level packet (eg. UDP packet), call it
 // regular indicates a regular packet has received(not from FEC)
-func (kcp *KCP) Input(data []byte, regular bool) int {
+func (kcp *KCP) Input(data []byte, regular, ackNoDelay bool) int {
 	una := kcp.snd_una
 	if len(data) < IKCP_OVERHEAD {
 		return -1
 	}
 
 	var maxack uint32
-	var recentack uint32
 	var flag int
 
+	current := currentMs()
 	for {
 		var ts, sn, length, una, conv uint32
 		var wnd uint16
@@ -526,6 +525,10 @@ func (kcp *KCP) Input(data []byte, regular bool) int {
 		kcp.shrink_buf()
 
 		if cmd == IKCP_CMD_ACK {
+			if _itimediff(current, ts) >= 0 {
+				kcp.update_ack(_itimediff(current, ts))
+			}
+
 			kcp.parse_ack(sn)
 			kcp.shrink_buf()
 			if flag == 0 {
@@ -534,7 +537,6 @@ func (kcp *KCP) Input(data []byte, regular bool) int {
 			} else if _itimediff(sn, maxack) > 0 {
 				maxack = sn
 			}
-			recentack = ts
 		} else if cmd == IKCP_CMD_PUSH {
 			if _itimediff(sn, kcp.rcv_nxt+kcp.rcv_wnd) < 0 {
 				kcp.ack_push(sn, ts)
@@ -568,12 +570,8 @@ func (kcp *KCP) Input(data []byte, regular bool) int {
 		data = data[length:]
 	}
 
-	current := currentMs()
 	if flag != 0 && regular {
 		kcp.parse_fastack(maxack)
-		if _itimediff(current, recentack) >= 0 {
-			kcp.update_ack(_itimediff(current, recentack))
-		}
 	}
 
 	if _itimediff(kcp.snd_una, una) > 0 {
@@ -598,6 +596,11 @@ func (kcp *KCP) Input(data []byte, regular bool) int {
 		}
 	}
 
+	if ackNoDelay && len(kcp.acklist) > 0 { // ack immediately
+		kcp.flush(true)
+	} else if kcp.rmt_wnd == 0 && len(kcp.acklist) > 0 { // window zero
+		kcp.flush(true)
+	}
 	return 0
 }
 
@@ -609,7 +612,7 @@ func (kcp *KCP) wnd_unused() int32 {
 }
 
 // flush pending data
-func (kcp *KCP) flush() {
+func (kcp *KCP) flush(ackOnly bool) {
 	buffer := kcp.buffer
 	change := 0
 	lost := false
@@ -621,20 +624,41 @@ func (kcp *KCP) flush() {
 	seg.una = kcp.rcv_nxt
 
 	// flush acknowledges
-	ptr := buffer
+	var required []ackItem
 	for i, ack := range kcp.acklist {
-		size := len(buffer) - len(ptr)
-		if size+IKCP_OVERHEAD > int(kcp.mtu) {
-			kcp.output(buffer, size)
-			ptr = buffer
-		}
-		// filter jitters caused by bufferbloat
+		// filter necessary acks only
 		if ack.sn >= kcp.rcv_nxt || len(kcp.acklist)-1 == i {
-			seg.sn, seg.ts = ack.sn, ack.ts
-			ptr = seg.encode(ptr)
+			required = append(required, kcp.acklist[i])
 		}
 	}
 	kcp.acklist = nil
+
+	ptr := buffer
+	maxBatchSize := kcp.mtu / IKCP_OVERHEAD
+	for len(required) > 0 {
+		var batchSize int
+		if kcp.datashard > 0 && kcp.parityshard > 0 { // try triggering FEC
+			batchSize = int(_ibound_(1, uint32(len(required)/kcp.datashard), maxBatchSize))
+		} else {
+			batchSize = int(_ibound_(1, uint32(len(required)), maxBatchSize))
+		}
+
+		for len(required) >= batchSize {
+			for i := 0; i < batchSize; i++ {
+				ack := required[i]
+				seg.sn, seg.ts = ack.sn, ack.ts
+				ptr = seg.encode(ptr)
+			}
+			size := len(buffer) - len(ptr)
+			kcp.output(buffer, size)
+			ptr = buffer
+			required = required[batchSize:]
+		}
+	}
+
+	if ackOnly { // flush acks only
+		return
+	}
 
 	current := currentMs()
 	// probe window size (if remote window size equals zero)
@@ -757,25 +781,21 @@ func (kcp *KCP) flush() {
 			lost = true
 			lostSegs++
 		} else if segment.fastack >= resent { // fast retransmit
-			lastsend := segment.resendts - segment.rto
-			if _itimediff(current, lastsend) >= kcp.rx_srtt>>2 {
-				needsend = true
-				segment.xmit++
-				segment.fastack = 0
-				segment.resendts = current + segment.rto
-				change++
-				fastRetransSegs++
-			}
+			needsend = true
+			segment.xmit++
+			segment.fastack = 0
+			segment.rto = kcp.rx_rto
+			segment.resendts = current + segment.rto
+			change++
+			fastRetransSegs++
 		} else if segment.fastack > 0 && newSegsCount == 0 { // early retransmit
-			lastsend := segment.resendts - segment.rto
-			if _itimediff(current, lastsend) >= kcp.rx_srtt>>2 {
-				needsend = true
-				segment.xmit++
-				segment.fastack = 0
-				segment.resendts = current + segment.rto
-				change++
-				earlyRetransSegs++
-			}
+			needsend = true
+			segment.xmit++
+			segment.fastack = 0
+			segment.rto = kcp.rx_rto
+			segment.resendts = current + segment.rto
+			change++
+			earlyRetransSegs++
 		}
 
 		if needsend {
@@ -813,13 +833,13 @@ func (kcp *KCP) flush() {
 	if lostSegs > 0 {
 		atomic.AddUint64(&DefaultSnmp.LostSegs, lostSegs)
 	}
-	if earlyRetransSegs > 0 {
-		atomic.AddUint64(&DefaultSnmp.EarlyRetransSegs, earlyRetransSegs)
-		sum += earlyRetransSegs
-	}
 	if fastRetransSegs > 0 {
 		atomic.AddUint64(&DefaultSnmp.FastRetransSegs, fastRetransSegs)
 		sum += fastRetransSegs
+	}
+	if earlyRetransSegs > 0 {
+		atomic.AddUint64(&DefaultSnmp.EarlyRetransSegs, earlyRetransSegs)
+		sum += earlyRetransSegs
 	}
 	if sum > 0 {
 		atomic.AddUint64(&DefaultSnmp.RetransSegs, sum)
@@ -877,7 +897,7 @@ func (kcp *KCP) Update() {
 		if _itimediff(current, kcp.ts_flush) >= 0 {
 			kcp.ts_flush = current + kcp.interval
 		}
-		kcp.flush()
+		kcp.flush(false)
 	}
 }
 
@@ -929,6 +949,12 @@ func (kcp *KCP) Check() uint32 {
 	}
 
 	return current + minimal
+}
+
+// set datashard,parityshard info for some optimizations
+func (kcp *KCP) setFEC(datashard, parityshard int) {
+	kcp.datashard = datashard
+	kcp.parityshard = parityshard
 }
 
 // SetMtu changes MTU size, default is 1400
