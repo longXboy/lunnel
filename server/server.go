@@ -33,11 +33,32 @@ func main() {
 
 	go serveHttp(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpPort))
 	go serveHttps(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpsPort))
-	lis, err := kcp.Listen(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort))
-	if err != nil {
-		log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "udp", "err": err}).Fatalln("server's control listen failed!")
+	go listenAndServe("kcp")
+	go listenAndServe("tcp")
+	wait := make(chan struct{})
+	<-wait
+}
+
+func listenAndServe(mode string) {
+	var lis net.Listener
+	var err error
+	if mode == "kcp" {
+		lis, err = kcp.Listen(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort))
+		if err != nil {
+			log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "udp", "err": err}).Fatalln("server's control listen failed!")
+		}
+		log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "udp"}).Infoln("server's control listen at")
+	} else {
+		lis, err = net.Listen("tcp", fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort))
+		if err != nil {
+			log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "tcp", "err": err}).Fatalln("server's control listen failed!")
+		}
+		log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "tcp"}).Infoln("server's control listen at")
 	}
-	log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "udp"}).Infoln("server's control listen at")
+	serve(lis)
+}
+
+func serve(lis net.Listener) {
 	for {
 		if conn, err := lis.Accept(); err == nil {
 			go func() {
@@ -75,6 +96,7 @@ func main() {
 			log.WithFields(log.Fields{"err": err}).Errorln("lis.Accept failed!")
 		}
 	}
+
 }
 
 func serveHttps(addr string) {

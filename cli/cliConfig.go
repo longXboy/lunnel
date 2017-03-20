@@ -30,7 +30,8 @@ type Config struct {
 	//default value is tls
 	EncryptMode string                      `yaml:"encrypt_mode,omitempty"`
 	Tunnels     map[string]msg.TunnelConfig `yaml:"tunnels"`
-	AuthToken   string                      `yaml:"auth_token"`
+	AuthToken   string                      `yaml:"auth_token,omitempty"`
+	Transport   string                      `yaml:"transport,omitempty"`
 }
 
 var cliConf Config
@@ -80,6 +81,12 @@ func LoadConfig(configFile string) error {
 	}
 	if len(cliConf.Tunnels) == 0 {
 		return errors.New("you must specify at least one tunnel")
+	}
+	if cliConf.Transport == "" {
+		cliConf.Transport = "kcp"
+	} else if cliConf.Transport != "kcp" && cliConf.Transport != "tcp" {
+		return errors.Errorf("invalid transport mode:%s", cliConf.Transport)
+
 	}
 	return nil
 }
