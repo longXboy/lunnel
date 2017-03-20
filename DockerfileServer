@@ -6,6 +6,6 @@ RUN apk add --update \
 
 copy . /go/src/Lunnel
 
-RUN go install Lunnel/cli
+RUN go install Lunnel/server
 
-ENTRYPOINT ["cli"]
+ENTRYPOINT ["server"]
