@@ -21,7 +21,7 @@ type Config struct {
 	ListenIP     string `yaml:"ip,omitempty"`
 	HttpPort     uint16 `yaml:"http_port,omitempty"`
 	HttpsPort    uint16 `yaml:"https_port,omitempty"`
-	ServerDomain string `yaml:"subdomian,omitempty"`
+	ServerDomain string `yaml:"server_domain,omitempty"`
 	TlsCert      string `yaml:"tls_cert,omitempty"`
 	TlsKey       string `yaml:"tls_key,omitempty"`
 	SecretKey    string `yaml:"secret_key,omitempty"`
@@ -34,6 +34,7 @@ type Config struct {
 	AuthUrl      string `yaml:"auth_url,omitempty"`
 	NotifyEnable bool   `yaml:"notify_enable,omitempty"`
 	NotifyUrl    string `yaml:"notify_url,omitempty"`
+	NotifyKey    string `yaml:"notify_key,omitempty"`
 }
 
 var serverConf Config
@@ -47,15 +48,13 @@ func LoadConfig(configFile string) error {
 		if strings.HasSuffix(configFile, "json") {
 			err = json.Unmarshal(content, &serverConf)
 			if err != nil {
-				return errors.Wrap(err, "unmarshal config file using json style")
-			}
-		} else if strings.HasSuffix(configFile, "yml") || strings.HasSuffix(configFile, "yaml") {
-			err = yaml.Unmarshal(content, &serverConf)
-			if err != nil {
-				return errors.Wrap(err, "unmarshal config file using yaml style")
+				return errors.Wrap(err, "unmarshal config file using json decode")
 			}
 		} else {
-			return errors.Errorf("invalid config format:%s", configFile)
+			err = yaml.Unmarshal(content, &serverConf)
+			if err != nil {
+				return errors.Wrap(err, "unmarshal config file using yaml decode")
+			}
 		}
 	}
 	if serverConf.ListenIP == "" {

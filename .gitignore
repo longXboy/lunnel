@@ -4,3 +4,5 @@ cli/cli
 .DS_Store
 assets/temp
 assets/log
+assets/client/config.yml
+assets/server/config.yml

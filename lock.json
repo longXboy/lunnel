@@ -1,10 +1,10 @@
 {
-    "memo": "6ef5f19c54ea45a8c1d8201407aa800aa773defb4093925ddbc61983cce18bf5",
+    "memo": "99667e343b448ce09d7d7688cb4849d359fd2f2812a29867bbac0189fd9be6d6",
     "projects": [
         {
             "name": "github.com/Sirupsen/logrus",
-            "version": "v0.11.2",
-            "revision": "c078b1e43f58d563c74cebe63c85789e76ddb627",
+            "version": "v0.11.5",
+            "revision": "ba1b36c82c5e05c4f912a88eab0dcd91a171688f",
             "packages": [
                 "."
             ]
@@ -43,8 +43,8 @@
         },
         {
             "name": "github.com/xtaci/kcp-go",
-            "version": "v2.18",
-            "revision": "39bec2a73d46f2e0e104f94d7411e2cc63b1e6d3",
+            "version": "v3.7",
+            "revision": "0f3b8d2b55c20ca9b5065a30428473737552492e",
             "packages": [
                 "."
             ]
@@ -52,12 +52,13 @@
         {
             "name": "golang.org/x/crypto",
             "branch": "master",
-            "revision": "453249f01cfeb54c3d549ddb75ff152ca243f9d8",
+            "revision": "459e26527287adbc2adcc5d0d49abff9a5f315a7",
             "packages": [
                 "blowfish",
                 "cast5",
                 "pbkdf2",
                 "salsa20",
+                "salsa20/salsa",
                 "tea",
                 "twofish",
                 "xtea"
@@ -66,15 +67,18 @@
         {
             "name": "golang.org/x/net",
             "branch": "master",
-            "revision": "6b27048ae5e6ad1ef927e72e437531493de612fe",
+            "revision": "a6577fac2d73be281a500b310739095313165611",
             "packages": [
+                "bpf",
+                "internal/iana",
+                "internal/netreflect",
                 "ipv4"
             ]
         },
         {
             "name": "golang.org/x/sys",
             "branch": "master",
-            "revision": "075e574b89e4c2d22f2286a7e2b919519c6f3547",
+            "revision": "99f16d856c9836c42d24e7ab64ea72916925fa97",
             "packages": [
                 "unix"
             ]

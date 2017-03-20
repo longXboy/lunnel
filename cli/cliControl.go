@@ -163,7 +163,11 @@ func (c *Control) ClientSyncTunnels() error {
 	cstm = body.(*msg.SyncTunnels)
 	c.tunnels = cstm.Tunnels
 	for _, v := range c.tunnels {
-		log.WithFields(log.Fields{"local": v.LocalAddr, "remote": fmt.Sprintf("%s://%s:%d", v.Protocol, v.Hostname, v.RemotePort)}).Infoln("client sync tunnel complete")
+		if v.Protocol == "http" || v.Protocol == "https" {
+			log.WithFields(log.Fields{"local": v.LocalAddr, "remote": fmt.Sprintf("%s://%s.%s:%d", v.Protocol, v.Subdomain, v.Hostname, v.RemotePort)}).Infoln("client sync tunnel complete")
+		} else {
+			log.WithFields(log.Fields{"local": v.LocalAddr, "remote": fmt.Sprintf("%s://%s:%d", v.Protocol, v.Hostname, v.RemotePort)}).Infoln("client sync tunnel complete")
+		}
 	}
 	return nil
 }
@@ -252,12 +256,13 @@ func (c *Control) ClientHandShake() error {
 			return errors.New("GenerateKeyExChange error,key is nil")
 		}
 		ckem.CipherKey = keyMsg
-		ckem.AuthToken = cliConf.AuthToken
-		err := msg.WriteMsg(c.ctlConn, msg.TypeControlClientHello, ckem)
-		if err != nil {
-			return errors.Wrap(err, "WriteMsg ckem")
-		}
 	}
+	ckem.AuthToken = cliConf.AuthToken
+	err := msg.WriteMsg(c.ctlConn, msg.TypeControlClientHello, ckem)
+	if err != nil {
+		return errors.Wrap(err, "WriteMsg ckem")
+	}
+
 	_, body, err := msg.ReadMsg(c.ctlConn)
 	if err != nil {
 		return errors.Wrap(err, "read ClientID")

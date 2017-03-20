@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestXOR(t *testing.T) {
+func TestXORBytes(t *testing.T) {
 	for alignP := 0; alignP < 2; alignP++ {
 		for alignQ := 0; alignQ < 2; alignQ++ {
 			for alignD := 0; alignD < 2; alignD++ {
@@ -19,7 +19,7 @@ func TestXOR(t *testing.T) {
 				d2 := make([]byte, 1024+alignD)[alignD:]
 				xorBytes(d1, p, q)
 				safeXORBytes(d2, p, q)
-				if bytes.Compare(d1, d2) != 0 {
+				if !bytes.Equal(d1, d2) {
 					t.Error("not equal")
 				}
 			}
