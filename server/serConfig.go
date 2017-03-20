@@ -47,15 +47,13 @@ func LoadConfig(configFile string) error {
 		if strings.HasSuffix(configFile, "json") {
 			err = json.Unmarshal(content, &serverConf)
 			if err != nil {
-				return errors.Wrap(err, "unmarshal config file using json style")
-			}
-		} else if strings.HasSuffix(configFile, "yml") || strings.HasSuffix(configFile, "yaml") {
-			err = yaml.Unmarshal(content, &serverConf)
-			if err != nil {
-				return errors.Wrap(err, "unmarshal config file using yaml style")
+				return errors.Wrap(err, "unmarshal config file using json decode")
 			}
 		} else {
-			return errors.Errorf("invalid config format:%s", configFile)
+			err = yaml.Unmarshal(content, &serverConf)
+			if err != nil {
+				return errors.Wrap(err, "unmarshal config file using yaml decode")
+			}
 		}
 	}
 	if serverConf.ListenIP == "" {

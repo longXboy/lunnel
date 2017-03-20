@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-	configFile := flag.String("c", "../assets/server/config.json", "path of config file")
+	configFile := flag.String("c", "../assets/server/config.yml", "path of config file")
 	flag.Parse()
 	err := LoadConfig(*configFile)
 	if err != nil {

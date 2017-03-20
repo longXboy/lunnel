@@ -53,7 +53,7 @@ func CreateConn(addr string, noComp bool) (net.Conn, error) {
 }
 
 func main() {
-	configFile := flag.String("c", "../assets/client/config.json", "path of config file")
+	configFile := flag.String("c", "../assets/client/config.yml", "path of config file")
 	flag.Parse()
 	err := LoadConfig(*configFile)
 	if err != nil {
