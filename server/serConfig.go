@@ -34,6 +34,7 @@ type Config struct {
 	AuthUrl      string `yaml:"auth_url,omitempty"`
 	NotifyEnable bool   `yaml:"notify_enable,omitempty"`
 	NotifyUrl    string `yaml:"notify_url,omitempty"`
+	NotifyKey    string `yaml:"notify_key,omitempty"`
 }
 
 var serverConf Config

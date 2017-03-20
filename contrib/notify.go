@@ -1,6 +1,6 @@
 package contrib
 
-func InitNotify(notifyUrl string) error {
+func InitNotify(notifyUrl string, notifyKey string) error {
 	return nil
 }
 

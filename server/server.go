@@ -28,7 +28,7 @@ func main() {
 		contrib.InitAuth(serverConf.AuthUrl)
 	}
 	if serverConf.NotifyEnable {
-		contrib.InitNotify(serverConf.NotifyUrl)
+		contrib.InitNotify(serverConf.NotifyUrl, serverConf.NotifyKey)
 	}
 
 	go serveHttp(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpPort))
