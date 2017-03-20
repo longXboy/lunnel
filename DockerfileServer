@@ -9,3 +9,4 @@ copy . /go/src/Lunnel
 RUN go install Lunnel/server
 
 ENTRYPOINT ["server"]
+CMD ["-c","./config.yml"]
