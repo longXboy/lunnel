@@ -76,7 +76,7 @@ func (c *Control) moderator() {
 
 func (c *Control) createPipe() {
 	log.WithField("time", time.Now().Unix()).Infoln("create pipe!")
-	pipeConn, err := CreateConn(cliConf.ServerAddr, true)
+	pipeConn, err := CreateConn(cliConf.ServerAddr)
 	if err != nil {
 		log.WithFields(log.Fields{"addr": cliConf.ServerAddr, "err": err}).Errorln("creating tunnel conn to server failed!")
 		return

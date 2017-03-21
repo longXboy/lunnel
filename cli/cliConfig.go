@@ -32,6 +32,7 @@ type Config struct {
 	Tunnels     map[string]msg.TunnelConfig `yaml:"tunnels"`
 	AuthToken   string                      `yaml:"auth_token,omitempty"`
 	Transport   string                      `yaml:"transport,omitempty"`
+	HttpProxy   string                      `yaml:"http_proxy,omitempty"`
 }
 
 var cliConf Config
@@ -84,7 +85,13 @@ func LoadConfig(configFile string) error {
 		cliConf.Transport = "kcp"
 	} else if cliConf.Transport != "kcp" && cliConf.Transport != "tcp" {
 		return errors.Errorf("invalid transport mode:%s", cliConf.Transport)
-
+	}
+	if (os.Getenv("http_proxy") != "" || os.Getenv("HTTP_PROXY") != "") && cliConf.HttpProxy == "" {
+		if os.Getenv("http_proxy") != "" {
+			cliConf.HttpProxy = os.Getenv("http_proxy")
+		} else if os.Getenv("HTTP_PROXY") != "" {
+			cliConf.HttpProxy = os.Getenv("HTTP_PROXY")
+		}
 	}
 	return nil
 }
