@@ -79,13 +79,9 @@ type (
 		// extended output buffer(with header)
 		ext []byte
 
-		fec           *FEC     // forward error correction
-		fecDataShards [][]byte // data shards cache
-		fecShardCount int      // count the number of datashards collected
-		fecMaxSize    int      // record maximum data length in datashard
-
-		fecHeaderOffset  int // FEC header offset in packet
-		fecPayloadOffset int // FEC payload offset in packet
+		// FEC
+		fecDecoder *FECDecoder
+		fecEncoder *FECEncoder
 
 		// settings
 		remote         net.Addr      // remote peer address
@@ -94,6 +90,7 @@ type (
 		headerSize     int           // the overall header size added before KCP frame
 		updateInterval time.Duration // interval in seconds to call kcp.flush()
 		ackNoDelay     bool          // send ack immediately for each incoming packet
+		writeDelay     bool          // delay kcp.flush() for Write() for bulk transfer
 
 		// notifications
 		die          chan struct{} // notify session has Closed
@@ -128,25 +125,18 @@ func newUDPSession(conv uint32, dataShards, parityShards int, l *Listener, conn 
 	sess.ext = make([]byte, mtuLimit)
 
 	// FEC initialization
-	sess.fec = newFEC(rxFECMulti*(dataShards+parityShards), dataShards, parityShards)
-	if sess.fec != nil {
-		if sess.block != nil {
-			sess.fecHeaderOffset = cryptHeaderSize
-		}
-		sess.fecPayloadOffset = sess.fecHeaderOffset + fecHeaderSize
-
-		// fec data shards
-		sess.fecDataShards = make([][]byte, sess.fec.shardSize)
-		for k := range sess.fecDataShards {
-			sess.fecDataShards[k] = make([]byte, mtuLimit)
-		}
+	sess.fecDecoder = newFECDecoder(rxFECMulti*(dataShards+parityShards), dataShards, parityShards)
+	if sess.block != nil {
+		sess.fecEncoder = newFECEncoder(dataShards, parityShards, cryptHeaderSize)
+	} else {
+		sess.fecEncoder = newFECEncoder(dataShards, parityShards, 0)
 	}
 
 	// calculate header size
 	if sess.block != nil {
 		sess.headerSize += cryptHeaderSize
 	}
-	if sess.fec != nil {
+	if sess.fecEncoder != nil {
 		sess.headerSize += fecHeaderSizePlus2
 	}
 
@@ -267,7 +257,9 @@ func (s *UDPSession) Write(b []byte) (n int, err error) {
 				}
 			}
 
-			s.kcp.flush(false)
+			if !s.writeDelay {
+				s.kcp.flush(false)
+			}
 			s.mu.Unlock()
 			atomic.AddUint64(&DefaultSnmp.BytesSent, uint64(n))
 			return n, nil
@@ -345,6 +337,13 @@ func (s *UDPSession) SetWriteDeadline(t time.Time) error {
 	defer s.mu.Unlock()
 	s.wd = t
 	return nil
+}
+
+// SetWriteDelay delays write for bulk transfer until the next update interval
+func (s *UDPSession) SetWriteDelay(delay bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.writeDelay = delay
 }
 
 // SetWindowSize set maximum window size
@@ -445,41 +444,8 @@ func (s *UDPSession) output(buf []byte) {
 	copy(ext[s.headerSize:], buf)
 
 	// FEC stage
-	if s.fec != nil {
-		s.fec.markData(ext[s.fecHeaderOffset:])
-		binary.LittleEndian.PutUint16(ext[s.fecPayloadOffset:], uint16(len(ext[s.fecPayloadOffset:])))
-
-		// copy data to fec datashards
-		sz := len(ext)
-		s.fecDataShards[s.fecShardCount] = s.fecDataShards[s.fecShardCount][:sz]
-		copy(s.fecDataShards[s.fecShardCount], ext)
-		s.fecShardCount++
-
-		// record max datashard length
-		if sz > s.fecMaxSize {
-			s.fecMaxSize = sz
-		}
-
-		//  calculate Reed-Solomon Erasure Code
-		if s.fecShardCount == s.fec.dataShards {
-			// bzero each datashard's tail
-			for i := 0; i < s.fec.dataShards; i++ {
-				shard := s.fecDataShards[i]
-				slen := len(shard)
-				xorBytes(shard[slen:s.fecMaxSize], shard[slen:s.fecMaxSize], shard[slen:s.fecMaxSize])
-			}
-
-			// calculation of RS
-			ecc = s.fec.Encode(s.fecDataShards, s.fecPayloadOffset, s.fecMaxSize)
-			for k := range ecc {
-				s.fec.markFEC(ecc[k][s.fecHeaderOffset:])
-				ecc[k] = ecc[k][:s.fecMaxSize]
-			}
-
-			// reset counters to zero
-			s.fecShardCount = 0
-			s.fecMaxSize = 0
-		}
+	if s.fecEncoder != nil {
+		ecc = s.fecEncoder.Encode(ext)
 	}
 
 	// encryption stage
@@ -555,8 +521,8 @@ func (s *UDPSession) notifyWriteEvent() {
 func (s *UDPSession) kcpInput(data []byte) {
 	var kcpInErrors, fecErrs, fecRecovered, fecParityShards uint64
 
-	if s.fec != nil {
-		f := s.fec.decodeBytes(data)
+	if s.fecDecoder != nil {
+		f := s.fecDecoder.decodeBytes(data)
 		s.mu.Lock()
 		if f.flag == typeData {
 			if ret := s.kcp.Input(data[fecHeaderSizePlus2:], true, s.ackNoDelay); ret != 0 {
@@ -569,7 +535,7 @@ func (s *UDPSession) kcpInput(data []byte) {
 				fecParityShards++
 			}
 
-			if recovers := s.fec.Decode(f); recovers != nil {
+			if recovers := s.fecDecoder.Decode(f); recovers != nil {
 				for _, r := range recovers {
 					if len(r) >= 2 { // must be larger than 2bytes
 						sz := binary.LittleEndian.Uint16(r)
@@ -678,7 +644,7 @@ type (
 		block        BlockCrypt     // block encryption
 		dataShards   int            // FEC data shard
 		parityShards int            // FEC parity shard
-		fec          *FEC           // FEC mock initialization
+		fecDecoder   *FECDecoder    // FEC mock initialization
 		conn         net.PacketConn // the underlying packet connection
 
 		sessions        map[string]*UDPSession // all sessions accepted by this Listener
@@ -729,7 +695,7 @@ func (l *Listener) monitor() {
 					if len(l.chAccepts) < cap(l.chAccepts) { // do not let new session overwhelm accept queue
 						var conv uint32
 						convValid := false
-						if l.fec != nil {
+						if l.fecDecoder != nil {
 							isfec := binary.LittleEndian.Uint16(data[4:])
 							if isfec == typeData {
 								conv = binary.LittleEndian.Uint32(data[fecHeaderSizePlus2:])
@@ -892,13 +858,13 @@ func ServeConn(block BlockCrypt, dataShards, parityShards int, conn net.PacketCo
 	l.dataShards = dataShards
 	l.parityShards = parityShards
 	l.block = block
-	l.fec = newFEC(rxFECMulti*(dataShards+parityShards), dataShards, parityShards)
+	l.fecDecoder = newFECDecoder(rxFECMulti*(dataShards+parityShards), dataShards, parityShards)
 
 	// calculate header size
 	if l.block != nil {
 		l.headerSize += cryptHeaderSize
 	}
-	if l.fec != nil {
+	if l.fecDecoder != nil {
 		l.headerSize += fecHeaderSizePlus2
 	}
 

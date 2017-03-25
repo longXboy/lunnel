@@ -307,7 +307,7 @@ func (c *Control) moderator() {
 			}
 		}
 		if serverConf.NotifyEnable {
-			err := contrib.RemoveMember(serverConf.ServerDomain, fmt.Sprintf("%s://%s:%d", t.tunnelConfig.Protocol, t.tunnelConfig.Hostname, t.tunnelConfig.RemotePort))
+			err := contrib.RemoveMember(serverConf.ServerDomain, t.tunnelConfig.RemoteAddr())
 			if err != nil {
 				log.WithFields(log.Fields{"err": err}).Errorln("notify remove member failed!")
 			}
@@ -506,16 +506,9 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 		}
 		sstm.Tunnels[name] = tempTunnel
 		if serverConf.NotifyEnable {
-			if tempTunnel.Protocol == "http" || tempTunnel.Protocol == "https" {
-				err = contrib.AddMember(serverConf.ServerDomain, fmt.Sprintf("%s://%s.%s:%d", tempTunnel.Protocol, tempTunnel.Subdomain, tempTunnel.Hostname, tempTunnel.RemotePort))
-				if err != nil {
-					log.WithFields(log.Fields{"err": err}).Errorln("notify add member failed!")
-				}
-			} else {
-				err = contrib.AddMember(serverConf.ServerDomain, fmt.Sprintf("%s://%s:%d", tempTunnel.Protocol, tempTunnel.Hostname, tempTunnel.RemotePort))
-				if err != nil {
-					log.WithFields(log.Fields{"err": err}).Errorln("notify add member failed!")
-				}
+			err = contrib.AddMember(serverConf.ServerDomain, tempTunnel.RemoteAddr())
+			if err != nil {
+				log.WithFields(log.Fields{"err": err}).Errorln("notify add member failed!")
 			}
 		}
 	}

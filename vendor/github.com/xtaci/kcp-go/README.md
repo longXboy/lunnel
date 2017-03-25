@@ -36,6 +36,7 @@ It provides ***fast, ordered and error-checked*** delivery of streams over **UDP
 1. Compatible with [net.Conn](https://golang.org/pkg/net/#Conn) and [net.Listener](https://golang.org/pkg/net/#Listener), easy to use.
 1. [FEC(Forward Error Correction)](https://en.wikipedia.org/wiki/Forward_error_correction) Support with [Reed-Solomon Codes](https://en.wikipedia.org/wiki/Reed%E2%80%93Solomon_error_correction)
 1. Packet level encryption support with [AES](https://en.wikipedia.org/wiki/Advanced_Encryption_Standard), [TEA](https://en.wikipedia.org/wiki/Tiny_Encryption_Algorithm), [3DES](https://en.wikipedia.org/wiki/Triple_DES), [Blowfish](https://en.wikipedia.org/wiki/Blowfish_(cipher)), [Cast5](https://en.wikipedia.org/wiki/CAST-128), [Salsa20]( https://en.wikipedia.org/wiki/Salsa20), etc. in [CFB](https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation#Cipher_Feedback_.28CFB.29) mode.
+1. ***O(1) goroutines*** created for the entire server application, minimized goroutine context switch.
 
 ## Conventions
 
@@ -120,6 +121,36 @@ BenchmarkSinkSpeed1M-4     	     100	  14701943 ns/op	  71.32 MB/s	  614016 B/op
 PASS
 ok  	github.com/xtaci/kcp-go	36.141s
 ```
+
+## Design Considerations
+
+1. slice vs. container/list
+
+`kcp.flush()` loops through the send queue for retransmission checking for every 20ms(interval).
+
+I've wrote a benchmark for comparing sequential loop through *slice* and *container/list* here:
+
+https://github.com/xtaci/notes/blob/master/golang/benchmark2/cachemiss_test.go
+
+```
+BenchmarkLoopSlice-4   	2000000000	         0.39 ns/op
+BenchmarkLoopList-4    	100000000	        54.6 ns/op
+```
+
+List structure introduces **heavy cache misses** compared to slice which owns better **locality**, 5000 connections with 32 window size and 20ms interval will cost 6us/0.03%(cpu) using slice, and 8.7ms/43.5%(cpu) for list for each `kcp.flush()`.
+
+2. Timing accuracy vs. syscall clock_gettime
+
+Timing is **critical** to **RTT estimator**, inaccurate timing introduces false retransmissions in KCP, but calling `time.Now()` costs 42 cycles(10.5ns on 4GHz CPU, 15.6ns on my MacBook Pro 2.7GHz), the benchmark for time.Now():
+
+https://github.com/xtaci/notes/blob/master/golang/benchmark2/syscall_test.go
+
+```
+BenchmarkNow-4         	100000000	        15.6 ns/op
+```
+
+In kcp-go, after each `kcp.output()` function call, current time will be updated upon return, and each `kcp.flush()` will get current time once. For most of the time, 5000 connections costs 5000 * 15.6ns = 78us(no packet needs to be sent by `kcp.output()`), as for 10MB/s data transfering with 1400 MTU, `kcp.output()` will be called around 7500 times and costs 117us for `time.Now()` in **every second**.
+
 
 ## Tuning
 

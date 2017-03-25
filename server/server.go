@@ -12,6 +12,7 @@ import (
 	"fmt"
 	rawLog "log"
 	"net"
+	"net/http"
 
 	log "github.com/Sirupsen/logrus"
 )
@@ -35,8 +36,22 @@ func main() {
 	go serveHttps(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpsPort))
 	go listenAndServe("kcp")
 	go listenAndServe("tcp")
+	go serveManage()
 	wait := make(chan struct{})
 	<-wait
+}
+
+func serveManage() {
+	r := mux.NewRouter()
+	r.HandleFunc("/tunnels/{tunnel}", GetTunnel)
+	http.Handle("/", r)
+	http.ListenAndServe("0.0.0.0:6060", nil)
+}
+
+func GetTunnel(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "tunnel: %v\n", vars["tunnel"])
 }
 
 func listenAndServe(mode string) {

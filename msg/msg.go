@@ -52,6 +52,14 @@ type TunnelConfig struct {
 	RemotePort uint16 `yaml:"remote_port,omitempty"`
 }
 
+func (tc TunnelConfig) RemoteAddr() string {
+	if tc.Protocol == "https" || tc.Protocol == "http" {
+		return fmt.Sprintf("%s://%s.%s:%d", tc.Protocol, tc.Subdomain, tc.Hostname, tc.RemotePort)
+	} else {
+		return fmt.Sprintf("%s://%s:%d", tc.Protocol, tc.Hostname, tc.RemotePort)
+	}
+}
+
 type SyncTunnels struct {
 	Tunnels map[string]TunnelConfig
 }
