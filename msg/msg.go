@@ -21,7 +21,17 @@ const (
 	TypePipeReq
 	TypePing
 	TypePong
+	TypeError
 )
+
+type Error struct {
+	msg  string
+	code int
+}
+
+func (e *Error) Error() string {
+	return e.msg
+}
 
 type ClientHello struct {
 	EncryptMode string
@@ -127,6 +137,8 @@ func readMsg(r net.Conn, timeout time.Duration) (MsgType, interface{}, error) {
 		return MsgType(header[0]), nil, nil
 	} else if MsgType(header[0]) == TypeClientHello {
 		out = new(ClientHello)
+	} else if MsgType(header[0]) == TypeError {
+		out = new(Error)
 	} else {
 		return 0, nil, errors.Errorf("invalid msg type %d", header[0])
 	}

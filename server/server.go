@@ -8,8 +8,10 @@ import (
 	"Lunnel/smux"
 	"Lunnel/vhost"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	rawLog "log"
 	"net"
 	"net/http"
@@ -42,16 +44,58 @@ func main() {
 }
 
 func serveManage() {
-	r := mux.NewRouter()
-	r.HandleFunc("/tunnels/{tunnel}", GetTunnel)
-	http.Handle("/", r)
-	http.ListenAndServe("0.0.0.0:6060", nil)
+	http.HandleFunc("/tunnel", tunnelQuery)
+	http.ListenAndServe(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ManagePort), nil)
 }
 
-func GetTunnel(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
+type tunnelStateReq struct {
+	RemoteAddr string `json:"remote_addr"`
+}
+
+type tunnelStateResp struct {
+	Tunnels []string `json:"tunnels"`
+}
+
+func tunnelQuery(w http.ResponseWriter, r *http.Request) {
+	content, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "req body is empty")
+		return
+	}
+	defer r.Body.Close()
+	var query tunnelStateReq
+	err = json.Unmarshal(content, &query)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "unmarshal req body failed")
+		return
+	}
+	var tunnelStats tunnelStateResp = tunnelStateResp{Tunnels: []string{}}
+	if query.RemoteAddr != "" {
+		TunnelMapLock.RLock()
+		tunnel, isok := TunnelMap[query.RemoteAddr]
+		TunnelMapLock.RUnlock()
+		if isok {
+			tunnelStats.Tunnels = append(tunnelStats.Tunnels, tunnel.tunnelConfig.RemoteAddr())
+		}
+	} else {
+		TunnelMapLock.RLock()
+		for _, v := range TunnelMap {
+			tunnelStats.Tunnels = append(tunnelStats.Tunnels, v.tunnelConfig.RemoteAddr())
+		}
+		TunnelMapLock.RUnlock()
+	}
+	header := w.Header()
+	header["Content-Type"] = []string{"application/json"}
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "tunnel: %v\n", vars["tunnel"])
+	retBody, err := json.Marshal(tunnelStats)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "marshal resp body failed")
+		return
+	}
+	w.Write(retBody)
 }
 
 func listenAndServe(mode string) {
@@ -85,7 +129,7 @@ func serve(lis net.Listener) {
 				}
 				if mType == msg.TypeClientHello {
 					smuxConfig := smux.DefaultConfig()
-					smuxConfig.MaxReceiveBuffer = 4194304
+					smuxConfig.MaxReceiveBuffer = 419430
 					sess, err := smux.Server(conn, smuxConfig)
 					if err != nil {
 						conn.Close()
@@ -132,18 +176,17 @@ func serveHttps(addr string) {
 				log.WithFields(log.Fields{"err": err}).Errorln("vhost.GetHttpRequestInfo failed!")
 				return
 			}
-			fmt.Println(HttpsMap)
-			HttpsMapLock.RLock()
-			tunnel, isok := HttpsMap[info["Host"]]
-			HttpsMapLock.RUnlock()
-			tlsConfig, err := newTlsConfig()
-			if err != nil {
-				log.Errorln("server error cert")
-				conn.Close()
-				return
-			}
-			tlcConn := tls.Server(sconn, tlsConfig)
+			TunnelMapLock.RLock()
+			tunnel, isok := TunnelMap[fmt.Sprintf("https://%s:%d", info["Host"], serverConf.HttpsPort)]
+			TunnelMapLock.RUnlock()
 			if isok {
+				tlsConfig, err := newTlsConfig()
+				if err != nil {
+					log.Errorln("server error cert")
+					conn.Close()
+					return
+				}
+				tlcConn := tls.Server(sconn, tlsConfig)
 				go proxyConn(tlcConn, tunnel.ctl, tunnel.tunnelName)
 			} else {
 				conn.Close()
@@ -172,10 +215,9 @@ func serveHttp(addr string) {
 				log.WithFields(log.Fields{"err": err}).Errorln("vhost.GetHttpRequestInfo failed!")
 				return
 			}
-			fmt.Println(HttpMap)
-			HttpMapLock.RLock()
-			tunnel, isok := HttpMap[info["Host"]]
-			HttpMapLock.RUnlock()
+			TunnelMapLock.RLock()
+			tunnel, isok := TunnelMap[fmt.Sprintf("http://%s:%d", info["Host"], serverConf.HttpPort)]
+			TunnelMapLock.RUnlock()
 			if isok {
 				go proxyConn(sconn, tunnel.ctl, tunnel.tunnelName)
 			} else {
@@ -190,9 +232,9 @@ func newTlsConfig() (*tls.Config, error) {
 	var err error
 	tlsConfig := &tls.Config{}
 	tlsConfig.Certificates = make([]tls.Certificate, 1)
-	tlsConfig.Certificates[0], err = tls.LoadX509KeyPair(serverConf.TlsCert, serverConf.TlsKey)
+	tlsConfig.Certificates[0], err = tls.LoadX509KeyPair(serverConf.Tls.TlsCert, serverConf.Tls.TlsKey)
 	if err != nil {
-		log.WithFields(log.Fields{"cert": serverConf.TlsCert, "private_key": serverConf.TlsKey, "err": err}).Errorln("load LoadX509KeyPair failed!")
+		log.WithFields(log.Fields{"cert": serverConf.Tls.TlsCert, "private_key": serverConf.Tls.TlsKey, "err": err}).Errorln("load LoadX509KeyPair failed!")
 		return tlsConfig, err
 	}
 	return tlsConfig, nil
@@ -210,7 +252,7 @@ func handleControl(conn net.Conn, cch *msg.ClientHello) {
 		tlsConn := tls.Server(conn, tlsConfig)
 		ctl = NewControl(tlsConn, cch.EncryptMode)
 	} else if cch.EncryptMode == "aes" {
-		cryptoConn, err := crypto.NewCryptoConn(conn, []byte(serverConf.SecretKey))
+		cryptoConn, err := crypto.NewCryptoConn(conn, []byte(serverConf.Aes.SecretKey))
 		if err != nil {
 			conn.Close()
 			log.WithFields(log.Fields{"err": err}).Errorln("client hello,crypto.NewCryptoConn failed!")

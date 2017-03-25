@@ -105,9 +105,9 @@ func (c *Control) createPipe() {
 		}
 		go func() {
 			defer stream.Close()
-			tunnel, isok := c.tunnels[stream.TunnelLocalAddr()]
+			tunnel, isok := c.tunnels[stream.TunnelName()]
 			if !isok {
-				log.WithFields(log.Fields{"name": stream.TunnelLocalAddr()}).Errorln("can't find tunnel by name")
+				log.WithFields(log.Fields{"name": stream.TunnelName()}).Errorln("can't find tunnel by name")
 				return
 			}
 			var conn net.Conn
@@ -115,7 +115,7 @@ func (c *Control) createPipe() {
 			if localProto == "http" || localProto == "https" || localProto == "" {
 				conn, err = net.Dial("tcp", addr)
 				if err != nil {
-					log.WithFields(log.Fields{"err": err, "local": stream.TunnelLocalAddr()}).Warningln("pipe dial local failed!")
+					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr}).Warningln("pipe dial local failed!")
 					return
 				}
 				if tunnel.Protocol == "https" {
@@ -124,7 +124,7 @@ func (c *Control) createPipe() {
 			} else {
 				conn, err = net.Dial(localProto, addr)
 				if err != nil {
-					log.WithFields(log.Fields{"err": err, "local": stream.TunnelLocalAddr()}).Warningln("pipe dial local failed!")
+					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr}).Warningln("pipe dial local failed!")
 					return
 				}
 			}
@@ -156,8 +156,12 @@ func (c *Control) ClientSyncTunnels() error {
 	if err != nil {
 		return errors.Wrap(err, "WriteMsg cstm")
 	}
-	_, body, err := msg.ReadMsg(c.ctlConn)
+	mType, body, err := msg.ReadMsg(c.ctlConn)
 	if err != nil {
+		return errors.Wrap(err, "ReadMsg cstm")
+	}
+	if mType == msg.TypeError {
+		err := body.(*msg.Error)
 		return errors.Wrap(err, "ReadMsg cstm")
 	}
 	cstm = body.(*msg.SyncTunnels)
@@ -263,9 +267,13 @@ func (c *Control) ClientHandShake() error {
 		return errors.Wrap(err, "WriteMsg ckem")
 	}
 
-	_, body, err := msg.ReadMsg(c.ctlConn)
+	mType, body, err := msg.ReadMsg(c.ctlConn)
 	if err != nil {
 		return errors.Wrap(err, "read ClientID")
+	}
+	if mType == msg.TypeError {
+		err := body.(*msg.Error)
+		return errors.Wrap(err, "ReadMsg cstm")
 	}
 	cidm := body.(*msg.ControlServerHello)
 	c.ClientID = cidm.ClientID

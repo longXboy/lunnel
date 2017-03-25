@@ -24,22 +24,22 @@ type Stream struct {
 	dieLock       sync.Mutex
 	readDeadline  atomic.Value
 	writeDeadline atomic.Value
-	localAddr     string
+	tunnelName    string
 }
 
 // newStream initiates a Stream struct
-func newStream(id uint32, frameSize int, sess *Session, localAddr string) *Stream {
+func newStream(id uint32, frameSize int, sess *Session, data string) *Stream {
 	s := new(Stream)
 	s.id = id
 	s.chReadEvent = make(chan struct{}, 1)
 	s.frameSize = frameSize
 	s.sess = sess
 	s.die = make(chan struct{})
-	s.localAddr = localAddr
+	s.tunnelName = data
 	return s
 }
-func (s *Stream) TunnelLocalAddr() string {
-	return s.localAddr
+func (s *Stream) TunnelName() string {
+	return s.tunnelName
 }
 
 // ID returns the unique stream ID.

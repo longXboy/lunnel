@@ -24,10 +24,9 @@ type Config struct {
 	ServerName  string `yaml:"server_name,omitempty"`
 	TrustedCert string `yaml:"trusted_cert,omitempty"`
 	SecretKey   string `yaml:"secret_key,omitempty"`
-	//none:means no encrypt
-	//aes:means exchange premaster key in aes mode
-	//tls:means exchange premaster key in tls mode
-	//default value is tls
+	//none:no encryption
+	//aes:encrpted by aes
+	//tls:encrpted by tls
 	EncryptMode string                      `yaml:"encrypt_mode,omitempty"`
 	Tunnels     map[string]msg.TunnelConfig `yaml:"tunnels"`
 	AuthToken   string                      `yaml:"auth_token,omitempty"`
@@ -63,7 +62,7 @@ func LoadConfig(configFile string) error {
 	}
 	if cliConf.EncryptMode == "aes" {
 		if cliConf.SecretKey == "" {
-			cliConf.SecretKey = "defaultpassword"
+			log.Fatalln("client can't start AES mode without configuring SecretKey")
 		}
 		pass := pbkdf2.Key([]byte(cliConf.SecretKey), []byte("lunnel"), 4096, 32, sha1.New)
 		cliConf.SecretKey = string(pass[:16])

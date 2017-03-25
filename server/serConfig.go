@@ -14,6 +14,15 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+type Aes struct {
+	SecretKey string `yaml:"secret_key,omitempty"`
+}
+
+type Tls struct {
+	TlsCert string `yaml:"tls_cert,omitempty"`
+	TlsKey  string `yaml:"tls_key,omitempty"`
+}
+
 type Config struct {
 	Prod         bool   `yaml:"prod,omitempty"`
 	LogFile      string `yaml:"log_file,omitempty"`
@@ -21,15 +30,10 @@ type Config struct {
 	ListenIP     string `yaml:"ip,omitempty"`
 	HttpPort     uint16 `yaml:"http_port,omitempty"`
 	HttpsPort    uint16 `yaml:"https_port,omitempty"`
+	ManagePort   uint16 `yaml:"manage_port,omitempty"`
 	ServerDomain string `yaml:"server_domain,omitempty"`
-	TlsCert      string `yaml:"tls_cert,omitempty"`
-	TlsKey       string `yaml:"tls_key,omitempty"`
-	SecretKey    string `yaml:"secret_key,omitempty"`
-	//none:means no encrypt
-	//aes:means exchange premaster key in aes mode
-	//tls:means exchange premaster key in tls mode
-	//default value is tls
-	EncryptMode  string `yaml:"encrypt_mode,omitempty"`
+	Aes          Aes    `yaml:"aes,omitempty"`
+	Tls          Tls    `yaml:"tls,omitempty"`
 	AuthEnable   bool   `yaml:"auth_enable,omitempty"`
 	AuthUrl      string `yaml:"auth_url,omitempty"`
 	NotifyEnable bool   `yaml:"notify_enable,omitempty"`
@@ -69,27 +73,17 @@ func LoadConfig(configFile string) error {
 	if serverConf.HttpsPort == 0 {
 		serverConf.HttpsPort = 443
 	}
+	if serverConf.ManagePort == 0 {
+		serverConf.ManagePort = 8081
+	}
+	if serverConf.Aes.SecretKey != "" {
+		pass := pbkdf2.Key([]byte(serverConf.Aes.SecretKey), []byte("lunnel"), 4096, 32, sha1.New)
+		serverConf.Aes.SecretKey = string(pass[:16])
+	} else {
+		log.Warningln("server can not support AES mode without configuring AES's secretkey")
+	}
 	if serverConf.ServerDomain == "" {
-		serverConf.ServerDomain = "lunnel.snakeoil.com"
-	}
-	if serverConf.EncryptMode == "" {
-		serverConf.EncryptMode = "tls"
-	}
-	if serverConf.EncryptMode != "tls" && serverConf.EncryptMode != "aes" && serverConf.EncryptMode != "none" {
-		return errors.Errorf("invalid encrypt mode:%s", serverConf.EncryptMode)
-	}
-	if serverConf.TlsCert == "" {
-		serverConf.TlsCert = "../assets/server/snakeoil.crt"
-	}
-	if serverConf.TlsKey == "" {
-		serverConf.TlsKey = "../assets/server/snakeoil.key"
-	}
-	if serverConf.EncryptMode == "aes" {
-		if serverConf.SecretKey == "" {
-			serverConf.SecretKey = "defaultpassword"
-		}
-		pass := pbkdf2.Key([]byte(serverConf.SecretKey), []byte("lunnel"), 4096, 32, sha1.New)
-		serverConf.SecretKey = string(pass[:16])
+		log.Warningln("server may not proxy http or https req correctly without configuring ServerDomain")
 	}
 	return nil
 }
