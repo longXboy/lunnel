@@ -1,5 +1,5 @@
 server/server
-cli/cli
+client/client
 .idea
 .DS_Store
 assets/temp

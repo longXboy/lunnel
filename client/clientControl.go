@@ -4,6 +4,7 @@ import (
 	"Lunnel/crypto"
 	"Lunnel/msg"
 	"Lunnel/smux"
+	"Lunnel/transport"
 	"Lunnel/util"
 	"crypto/tls"
 	"io"
@@ -19,13 +20,15 @@ import (
 var pingInterval time.Duration = time.Second * 8
 var pingTimeout time.Duration = time.Second * 17
 
-func NewControl(conn net.Conn, encryptMode string) *Control {
+func NewControl(conn net.Conn, encryptMode string, transport string) *Control {
 	ctl := &Control{
-		ctlConn:     conn,
-		die:         make(chan struct{}),
-		toDie:       make(chan struct{}),
-		writeChan:   make(chan writeReq, 128),
-		encryptMode: encryptMode,
+		ctlConn:       conn,
+		die:           make(chan struct{}),
+		toDie:         make(chan struct{}),
+		writeChan:     make(chan writeReq, 128),
+		encryptMode:   encryptMode,
+		tunnels:       make(map[string]msg.TunnelConfig, 0),
+		transportMode: transport,
 	}
 	return ctl
 }
@@ -42,6 +45,7 @@ type Control struct {
 	preMasterSecret []byte
 	lastRead        uint64
 	encryptMode     string
+	transportMode   string
 
 	die       chan struct{}
 	toDie     chan struct{}
@@ -76,7 +80,7 @@ func (c *Control) moderator() {
 
 func (c *Control) createPipe() {
 	log.WithField("time", time.Now().Unix()).Infoln("create pipe!")
-	pipeConn, err := CreateConn(cliConf.ServerAddr)
+	pipeConn, err := transport.CreateConn(cliConf.ServerAddr, c.transportMode, cliConf.HttpProxy)
 	if err != nil {
 		log.WithFields(log.Fields{"addr": cliConf.ServerAddr, "err": err}).Errorln("creating tunnel conn to server failed!")
 		return
@@ -194,6 +198,7 @@ func (c *Control) recvLoop() {
 		case msg.TypeError:
 			log.Errorln("recv server error:", body.(*msg.Error).Error())
 			c.Close()
+			return
 		}
 	}
 }

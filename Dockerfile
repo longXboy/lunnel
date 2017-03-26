@@ -6,7 +6,7 @@ RUN apk add --update \
 
 copy . /go/src/Lunnel
 
-RUN go install Lunnel/cli
+RUN go install Lunnel/client
 
-ENTRYPOINT ["cli"]
+ENTRYPOINT ["client"]
 CMD ["-c","./config.yml"]

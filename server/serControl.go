@@ -41,6 +41,7 @@ func NewControl(conn net.Conn, encryptMode string) *Control {
 		toDie:       make(chan struct{}),
 		writeChan:   make(chan writeReq, 128),
 		encryptMode: encryptMode,
+		tunnels:     make(map[string]*Tunnel, 0),
 	}
 	return ctl
 }
@@ -445,8 +446,11 @@ func proxyConn(userConn net.Conn, c *Control, tunnelName string) {
 }
 
 //add or update tunnel stat
-func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) error {
+func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
 	for name, _ := range sstm.Tunnels {
+		if c.IsClosed() {
+			return
+		}
 		var lis net.Listener = nil
 		var err error
 		c.tunnelLock.Lock()
@@ -457,15 +461,17 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) error {
 		}
 		c.tunnelLock.Unlock()
 		tunnelConfig := sstm.Tunnels[name]
-
+		selfHost := false
 		if tunnelConfig.Hostname == "" {
 			tunnelConfig.Hostname = serverConf.ServerDomain
+			selfHost = true
 		}
-
 		if tunnelConfig.Protocol == "tcp" || tunnelConfig.Protocol == "udp" {
 			lis, err = net.Listen(tunnelConfig.Protocol, fmt.Sprintf("%s:%d", serverConf.ListenIP, tunnelConfig.RemotePort))
 			if err != nil {
-				return errors.Wrap(err, fmt.Sprintf("binding %s port %d listener", tunnelConfig.Protocol, tunnelConfig.RemotePort))
+				log.WithFields(log.Fields{"remote_addr": tunnelConfig.RemoteAddr(), "client_id": c.ClientID}).Warningln("forbidden,remote port already in use")
+				c.writeChan <- writeReq{msg.TypeError, msg.Error{fmt.Sprintf("add tunnels failed!forbidden,remote addrs(%s) already in use", tunnelConfig.RemoteAddr())}}
+				continue
 			}
 			go func(tunnelName string) {
 				for {
@@ -483,8 +489,10 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) error {
 			addr := lis.Addr().(*net.TCPAddr)
 			tunnelConfig.RemotePort = uint16(addr.Port)
 		} else if tunnelConfig.Protocol == "http" || tunnelConfig.Protocol == "https" {
-			subDomain := util.Int2Short(atomic.AddUint64(&subDomainIdx, 1))
-			tunnelConfig.Subdomain = string(subDomain)
+			if tunnelConfig.Subdomain == "" && selfHost {
+				subDomain := util.Int2Short(atomic.AddUint64(&subDomainIdx, 1))
+				tunnelConfig.Subdomain = string(subDomain)
+			}
 			if tunnelConfig.Protocol == "http" {
 				tunnelConfig.RemotePort = serverConf.HttpPort
 			} else {
@@ -515,7 +523,7 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) error {
 		}
 	}
 	c.writeChan <- writeReq{msg.TypeAddTunnels, *sstm}
-	return nil
+	return
 }
 
 func (c *Control) GenerateClientId() crypto.UUID {

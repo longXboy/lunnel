@@ -3,9 +3,9 @@ package main
 import (
 	"Lunnel/contrib"
 	"Lunnel/crypto"
-	"Lunnel/kcp"
 	"Lunnel/msg"
 	"Lunnel/smux"
+	"Lunnel/transport"
 	"Lunnel/vhost"
 	"crypto/tls"
 	"encoding/json"
@@ -98,22 +98,14 @@ func tunnelQuery(w http.ResponseWriter, r *http.Request) {
 	w.Write(retBody)
 }
 
-func listenAndServe(mode string) {
-	var lis net.Listener
-	var err error
-	if mode == "kcp" {
-		lis, err = kcp.Listen(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort))
-		if err != nil {
-			log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "udp", "err": err}).Fatalln("server's control listen failed!")
-		}
-		log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "udp"}).Infoln("server's control listen at")
-	} else {
-		lis, err = net.Listen("tcp", fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort))
-		if err != nil {
-			log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "tcp", "err": err}).Fatalln("server's control listen failed!")
-		}
-		log.WithFields(log.Fields{"address": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort), "protocol": "tcp"}).Infoln("server's control listen at")
+func listenAndServe(transportMode string) {
+	addr := fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort)
+	lis, err := transport.Listen(addr, transportMode)
+	if err != nil {
+		log.WithFields(log.Fields{"address": addr, "protocol": transportMode, "err": err}).Fatalln("server's control listen failed!")
+		return
 	}
+	log.WithFields(log.Fields{"address": addr, "protocol": transportMode}).Infoln("server's control listen at")
 	serve(lis)
 }
 

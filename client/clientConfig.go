@@ -26,12 +26,15 @@ type Config struct {
 	SecretKey   string `yaml:"secret_key,omitempty"`
 	//none:no encryption
 	//aes:encrpted by aes
-	//tls:encrpted by tls
+	//tls:encrpted by tls,which is default
 	EncryptMode string                      `yaml:"encrypt_mode,omitempty"`
 	Tunnels     map[string]msg.TunnelConfig `yaml:"tunnels"`
 	AuthToken   string                      `yaml:"auth_token,omitempty"`
-	Transport   string                      `yaml:"transport,omitempty"`
-	HttpProxy   string                      `yaml:"http_proxy,omitempty"`
+	//mix: switch between kcp and tcp automatically,which is default
+	//kcp: communicate with server in kcp
+	//tcp: communicate with server in tcp
+	Transport string `yaml:"transport,omitempty"`
+	HttpProxy string `yaml:"http_proxy,omitempty"`
 }
 
 var cliConf Config
@@ -81,8 +84,8 @@ func LoadConfig(configFile string) error {
 		log.Warningln("no proxying tunnels sepcified")
 	}
 	if cliConf.Transport == "" {
-		cliConf.Transport = "kcp"
-	} else if cliConf.Transport != "kcp" && cliConf.Transport != "tcp" {
+		cliConf.Transport = "mix"
+	} else if cliConf.Transport != "kcp" && cliConf.Transport != "tcp" && cliConf.Transport != "mix" {
 		return errors.Errorf("invalid transport mode:%s", cliConf.Transport)
 	}
 	if (os.Getenv("http_proxy") != "" || os.Getenv("HTTP_PROXY") != "") && cliConf.HttpProxy == "" {

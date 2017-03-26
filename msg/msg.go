@@ -58,16 +58,16 @@ type TunnelConfig struct {
 	LocalAddr  string `yaml:"local"`
 	Subdomain  string `yaml:"subdomain,omitempty"`
 	Hostname   string `yaml:"hostname,omitempty"`
-	HttpAuth   string `yaml:"auth,omitempty"`
 	RemotePort uint16 `yaml:"remote_port,omitempty"`
 }
 
 func (tc TunnelConfig) RemoteAddr() string {
-	if tc.Protocol == "https" || tc.Protocol == "http" {
+	if tc.Subdomain != "" {
 		return fmt.Sprintf("%s://%s.%s:%d", tc.Protocol, tc.Subdomain, tc.Hostname, tc.RemotePort)
 	} else {
 		return fmt.Sprintf("%s://%s:%d", tc.Protocol, tc.Hostname, tc.RemotePort)
 	}
+
 }
 
 type AddTunnels struct {
