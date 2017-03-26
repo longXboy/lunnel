@@ -193,7 +193,7 @@ func main() {
 			continue
 		}
 		fmt.Println("client handshake end")
-		err = ctl.ClientSyncTunnels()
+		err = ctl.ClientAddTunnels()
 		if err != nil {
 			sess.Close()
 			log.WithFields(log.Fields{"err": err}).Warnln("control.ClientSyncTunnels failed!")

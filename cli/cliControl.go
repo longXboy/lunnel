@@ -6,9 +6,9 @@ import (
 	"Lunnel/smux"
 	"Lunnel/util"
 	"crypto/tls"
-	"fmt"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -27,7 +27,6 @@ func NewControl(conn net.Conn, encryptMode string) *Control {
 		writeChan:   make(chan writeReq, 128),
 		encryptMode: encryptMode,
 	}
-	ctl.tunnels = cliConf.Tunnels
 	return ctl
 }
 
@@ -38,6 +37,7 @@ type writeReq struct {
 
 type Control struct {
 	ctlConn         net.Conn
+	tunnelLock      sync.Mutex
 	tunnels         map[string]msg.TunnelConfig
 	preMasterSecret []byte
 	lastRead        uint64
@@ -149,29 +149,22 @@ func (c *Control) createPipe() {
 	}
 }
 
-func (c *Control) ClientSyncTunnels() error {
-	cstm := new(msg.SyncTunnels)
-	cstm.Tunnels = c.tunnels
-	err := msg.WriteMsg(c.ctlConn, msg.TypeSyncTunnels, *cstm)
+func (c *Control) SyncTunnels(cstm *msg.AddTunnels) error {
+	for k, v := range cstm.Tunnels {
+		c.tunnelLock.Lock()
+		c.tunnels[k] = v
+		c.tunnelLock.Unlock()
+		log.WithFields(log.Fields{"local": v.LocalAddr, "remote": v.RemoteAddr()}).Infoln("client sync tunnel complete")
+	}
+	return nil
+}
+
+func (c *Control) ClientAddTunnels() error {
+	cstm := new(msg.AddTunnels)
+	cstm.Tunnels = cliConf.Tunnels
+	err := msg.WriteMsg(c.ctlConn, msg.TypeAddTunnels, *cstm)
 	if err != nil {
 		return errors.Wrap(err, "WriteMsg cstm")
-	}
-	mType, body, err := msg.ReadMsg(c.ctlConn)
-	if err != nil {
-		return errors.Wrap(err, "ReadMsg cstm")
-	}
-	if mType == msg.TypeError {
-		err := body.(*msg.Error)
-		return errors.Wrap(err, "ReadMsg cstm")
-	}
-	cstm = body.(*msg.SyncTunnels)
-	c.tunnels = cstm.Tunnels
-	for _, v := range c.tunnels {
-		if v.Protocol == "http" || v.Protocol == "https" {
-			log.WithFields(log.Fields{"local": v.LocalAddr, "remote": fmt.Sprintf("%s://%s.%s:%d", v.Protocol, v.Subdomain, v.Hostname, v.RemotePort)}).Infoln("client sync tunnel complete")
-		} else {
-			log.WithFields(log.Fields{"local": v.LocalAddr, "remote": fmt.Sprintf("%s://%s:%d", v.Protocol, v.Hostname, v.RemotePort)}).Infoln("client sync tunnel complete")
-		}
 	}
 	return nil
 }
@@ -182,7 +175,7 @@ func (c *Control) recvLoop() {
 		if c.IsClosed() {
 			return
 		}
-		mType, _, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
+		mType, body, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
 		if err != nil {
 			log.WithFields(log.Fields{"err": err}).Warningln("ReadMsgWithoutTimeout failed")
 			c.Close()
@@ -196,6 +189,11 @@ func (c *Control) recvLoop() {
 			c.writeChan <- writeReq{msg.TypePong, nil}
 		case msg.TypePipeReq:
 			go c.createPipe()
+		case msg.TypeAddTunnels:
+			c.SyncTunnels(body.(*msg.AddTunnels))
+		case msg.TypeError:
+			log.Errorln("recv server error:", body.(*msg.Error).Error())
+			c.Close()
 		}
 	}
 }

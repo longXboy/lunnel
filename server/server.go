@@ -294,12 +294,6 @@ func handleControl(conn net.Conn, cch *msg.ClientHello) {
 		log.WithFields(log.Fields{"err": err, "ClientId": ctl.ClientID}).Errorln("ctl.ServerHandShake failed!")
 		return
 	}
-	err = ctl.ServerSyncTunnels(serverConf.ServerDomain)
-	if err != nil {
-		conn.Close()
-		log.WithFields(log.Fields{"err": err, "ClientId": ctl.ClientID}).Errorln("ctl.ServerSyncTunnels failed!")
-		return
-	}
 	ctl.Serve()
 }
 
