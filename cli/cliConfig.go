@@ -78,7 +78,7 @@ func LoadConfig(configFile string) error {
 		}
 	}
 	if len(cliConf.Tunnels) == 0 {
-		return errors.New("you must specify at least one tunnel")
+		log.Warningln("no proxying tunnels sepcified")
 	}
 	if cliConf.Transport == "" {
 		cliConf.Transport = "kcp"

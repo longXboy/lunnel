@@ -331,7 +331,7 @@ func (c *Control) recvLoop() {
 		if c.IsClosed() {
 			return
 		}
-		mType, _, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
+		mType, body, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
 		if err != nil {
 			log.WithFields(log.Fields{"err": err}).Warningln("ReadMsgWithoutTimeout failed")
 			c.Close()
@@ -340,6 +340,8 @@ func (c *Control) recvLoop() {
 
 		atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 		switch mType {
+		case msg.TypeAddTunnels:
+			go c.ServerAddTunnels(body.(*msg.AddTunnels))
 		case msg.TypePong:
 		case msg.TypePing:
 			c.writeChan <- writeReq{msg.TypePong, nil}
@@ -435,16 +437,12 @@ func proxyConn(userConn net.Conn, c *Control, tunnelName string) {
 	return
 }
 
-func (c *Control) ServerSyncTunnels(serverDomain string) error {
-	_, body, err := msg.ReadMsg(c.ctlConn)
-	if err != nil {
-		return errors.Wrap(err, "ReadMsg sstm")
-	}
-	sstm := body.(*msg.SyncTunnels)
+func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) error {
 	for name, _ := range sstm.Tunnels {
 		tunnelConfig := sstm.Tunnels[name]
-		tunnelConfig.Hostname = serverDomain
+		tunnelConfig.Hostname = serverConf.ServerDomain
 		var lis net.Listener = nil
+
 		if tunnelConfig.Protocol == "tcp" || tunnelConfig.Protocol == "udp" {
 			if tunnelConfig.Protocol == "tcp" {
 				lis, err = net.Listen("tcp", fmt.Sprintf("%s:0", serverConf.ListenIP))
@@ -469,7 +467,7 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 					go proxyConn(conn, c, tunnelName)
 				}
 			}(name)
-			//todo: port allocated by OS will lead to TunnelMap data race
+			//todo: port allocated by server not by OS
 			addr := lis.Addr().(*net.TCPAddr)
 			tunnelConfig.RemotePort = uint16(addr.Port)
 		} else if tunnelConfig.Protocol == "http" || tunnelConfig.Protocol == "https" {
@@ -495,7 +493,7 @@ func (c *Control) ServerSyncTunnels(serverDomain string) error {
 		TunnelMap[tunnel.tunnelConfig.RemoteAddr()] = &tunnel
 		TunnelMapLock.Unlock()
 	}
-	err = msg.WriteMsg(c.ctlConn, msg.TypeSyncTunnels, *sstm)
+	err = msg.WriteMsg(c.ctlConn, msg.TypeAddTunnels, *sstm)
 	if err != nil {
 		return errors.Wrap(err, "WriteMsg sstm")
 	}

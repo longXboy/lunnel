@@ -128,6 +128,23 @@ func serve(lis net.Listener) {
 					return
 				}
 				if mType == msg.TypeClientHello {
+					if body.(*msg.ClientHello).EncryptMode == "tls" && (serverConf.Tls.TlsCert == "" || serverConf.Tls.TlsKey == "") {
+						err = msg.WriteMsg(conn, msg.TypeError, msg.Error{Msg: "server not support tls mode"})
+						if err != nil {
+							return
+						}
+					} else if body.(*msg.ClientHello).EncryptMode == "aes" && serverConf.Aes.SecretKey == "" {
+						err = msg.WriteMsg(conn, msg.TypeError, msg.Error{Msg: "server not support aes mode"})
+						if err != nil {
+							return
+						}
+					} else {
+						err = msg.WriteMsg(conn, msg.TypeServerHello, nil)
+						if err != nil {
+							return
+						}
+					}
+
 					smuxConfig := smux.DefaultConfig()
 					smuxConfig.MaxReceiveBuffer = 419430
 					sess, err := smux.Server(conn, smuxConfig)
@@ -262,6 +279,10 @@ func handleControl(conn net.Conn, cch *msg.ClientHello) {
 	} else if cch.EncryptMode == "none" {
 		ctl = NewControl(conn, cch.EncryptMode)
 	} else {
+		err = msg.WriteMsg(conn, msg.TypeError, msg.Error{Msg: "invalid encryption mode"})
+		if err != nil {
+			return
+		}
 		conn.Close()
 		log.WithFields(log.Fields{"encrypt_mode": cch.EncryptMode, "err": "invalid EncryptMode"}).Errorln("client hello failed!")
 		return

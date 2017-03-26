@@ -129,6 +129,18 @@ func main() {
 			time.Sleep(time.Duration(int64(time.Second) * reconnectInterval))
 			continue
 		}
+		mType, body, err := msg.ReadMsg(conn)
+		if err != nil {
+			log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("read server hello failed!")
+			return
+		}
+		if mType == msg.TypeError {
+			serverError := body.(*msg.Error)
+			log.WithFields(log.Fields{"server error": serverError.Error()}).Warnln("client hello failed!")
+			return
+		} else if mType == msg.TypeServerHello {
+			fmt.Println("recv msg serer hello success")
+		}
 		smuxConfig := smux.DefaultConfig()
 		smuxConfig.MaxReceiveBuffer = 4194304
 		sess, err := smux.Client(conn, smuxConfig)

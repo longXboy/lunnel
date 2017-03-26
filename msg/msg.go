@@ -14,10 +14,11 @@ type MsgType uint8
 
 const (
 	TypeClientHello MsgType = iota
+	TypeServerHello
 	TypeControlClientHello
 	TypeControlServerHello
 	TypePipeClientHello
-	TypeSyncTunnels
+	TypeAddTunnels
 	TypePipeReq
 	TypePing
 	TypePong
@@ -25,12 +26,11 @@ const (
 )
 
 type Error struct {
-	msg  string
-	code int
+	Msg string
 }
 
 func (e *Error) Error() string {
-	return e.msg
+	return e.Msg
 }
 
 type ClientHello struct {
@@ -70,7 +70,7 @@ func (tc TunnelConfig) RemoteAddr() string {
 	}
 }
 
-type SyncTunnels struct {
+type AddTunnels struct {
 	Tunnels map[string]TunnelConfig
 }
 
@@ -131,9 +131,9 @@ func readMsg(r net.Conn, timeout time.Duration) (MsgType, interface{}, error) {
 		out = new(ControlServerHello)
 	} else if MsgType(header[0]) == TypePipeClientHello {
 		out = new(PipeClientHello)
-	} else if MsgType(header[0]) == TypeSyncTunnels {
-		out = new(SyncTunnels)
-	} else if MsgType(header[0]) == TypePipeReq || MsgType(header[0]) == TypePing || MsgType(header[0]) == TypePong {
+	} else if MsgType(header[0]) == TypeAddTunnels {
+		out = new(AddTunnels)
+	} else if MsgType(header[0]) == TypePipeReq || MsgType(header[0]) == TypePing || MsgType(header[0]) == TypePong || MsgType(header[0]) == TypeServerHello {
 		return MsgType(header[0]), nil, nil
 	} else if MsgType(header[0]) == TypeClientHello {
 		out = new(ClientHello)

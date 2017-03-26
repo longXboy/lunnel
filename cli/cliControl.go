@@ -273,7 +273,7 @@ func (c *Control) ClientHandShake() error {
 	}
 	if mType == msg.TypeError {
 		err := body.(*msg.Error)
-		return errors.Wrap(err, "ReadMsg cstm")
+		return errors.Wrap(err, "read ClientID")
 	}
 	cidm := body.(*msg.ControlServerHello)
 	c.ClientID = cidm.ClientID
