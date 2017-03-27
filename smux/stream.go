@@ -38,13 +38,14 @@ func newStream(id uint32, frameSize int, sess *Session, data string) *Stream {
 	s.tunnelName = data
 	return s
 }
-func (s *Stream) TunnelName() string {
-	return s.tunnelName
-}
 
 // ID returns the unique stream ID.
 func (s *Stream) ID() uint32 {
 	return s.id
+}
+
+func (s *Stream) TunnelName() string {
+	return s.tunnelName
 }
 
 // Read implements net.Conn
@@ -229,7 +230,7 @@ func (s *Stream) recycleTokens() (n int) {
 
 // split large byte buffer into smaller frames, reference only
 func (s *Stream) split(bts []byte, cmd byte, sid uint32) []Frame {
-	var frames []Frame
+	frames := make([]Frame, 0, len(bts)/s.frameSize+1)
 	for len(bts) > s.frameSize {
 		frame := newFrame(cmd, sid)
 		frame.data = bts[:s.frameSize]
