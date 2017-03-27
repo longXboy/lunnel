@@ -94,17 +94,17 @@ func _itimediff(later, earlier uint32) int32 {
 // Segment defines a KCP segment
 type Segment struct {
 	conv     uint32
-	cmd      uint32
-	frg      uint32
-	wnd      uint32
+	cmd      uint8
+	frg      uint8
+	wnd      uint16
 	ts       uint32
 	sn       uint32
 	una      uint32
-	data     []byte
-	resendts uint32
 	rto      uint32
-	fastack  uint32
 	xmit     uint32
+	resendts uint32
+	fastack  uint32
+	data     []byte
 }
 
 // encode a segment into buffer
@@ -129,7 +129,7 @@ type KCP struct {
 	rx_rttvar, rx_srtt                     int32
 	rx_rto, rx_minrto                      uint32
 	snd_wnd, rcv_wnd, rmt_wnd, cwnd, probe uint32
-	interval, ts_flush, xmit               uint32
+	interval, ts_flush                     uint32
 	nodelay, updated                       uint32
 	ts_probe, probe_wait                   uint32
 	dead_link, incr                        uint32
@@ -330,7 +330,7 @@ func (kcp *KCP) Send(buffer []byte) int {
 		seg := kcp.newSegment(size)
 		copy(seg.data, buffer[:size])
 		if kcp.stream == 0 { // message mode
-			seg.frg = uint32(count - i - 1)
+			seg.frg = uint8(count - i - 1)
 		} else { // stream mode
 			seg.frg = 0
 		}
@@ -549,9 +549,9 @@ func (kcp *KCP) Input(data []byte, regular, ackNoDelay bool) int {
 				if _itimediff(sn, kcp.rcv_nxt) >= 0 {
 					seg := kcp.newSegment(int(length))
 					seg.conv = conv
-					seg.cmd = uint32(cmd)
-					seg.frg = uint32(frg)
-					seg.wnd = uint32(wnd)
+					seg.cmd = cmd
+					seg.frg = frg
+					seg.wnd = wnd
 					seg.ts = ts
 					seg.sn = sn
 					seg.una = una
@@ -616,9 +616,9 @@ func (kcp *KCP) Input(data []byte, regular, ackNoDelay bool) int {
 	return 0
 }
 
-func (kcp *KCP) wnd_unused() int32 {
+func (kcp *KCP) wnd_unused() uint16 {
 	if len(kcp.rcv_queue) < int(kcp.rcv_wnd) {
-		return int32(int(kcp.rcv_wnd) - len(kcp.rcv_queue))
+		return uint16(int(kcp.rcv_wnd) - len(kcp.rcv_queue))
 	}
 	return 0
 }
@@ -628,7 +628,7 @@ func (kcp *KCP) flush(ackOnly bool) {
 	var seg Segment
 	seg.conv = kcp.conv
 	seg.cmd = IKCP_CMD_ACK
-	seg.wnd = uint32(kcp.wnd_unused())
+	seg.wnd = kcp.wnd_unused()
 	seg.una = kcp.rcv_nxt
 
 	buffer := kcp.buffer
@@ -735,36 +735,28 @@ func (kcp *KCP) flush(ackOnly bool) {
 		resent = 0xffffffff
 	}
 
-	// counters
-	var lostSegs, fastRetransSegs, earlyRetransSegs uint64
-
-	change := 0
-	lost := false
-	current := currentMs()
 	// check for retransmissions
+	current := currentMs()
+	var change, lost, lostSegs, fastRetransSegs, earlyRetransSegs uint64
 	for k := range kcp.snd_buf {
 		segment := &kcp.snd_buf[k]
 		needsend := false
 		if segment.xmit == 0 { // initial transmit
 			needsend = true
-			segment.xmit++
 			segment.rto = kcp.rx_rto
 			segment.resendts = current + segment.rto
 		} else if _itimediff(current, segment.resendts) >= 0 { // RTO
 			needsend = true
-			segment.xmit++
-			kcp.xmit++
 			if kcp.nodelay == 0 {
 				segment.rto += kcp.rx_rto
 			} else {
 				segment.rto += kcp.rx_rto / 2
 			}
 			segment.resendts = current + segment.rto
-			lost = true
+			lost++
 			lostSegs++
 		} else if segment.fastack >= resent { // fast retransmit
 			needsend = true
-			segment.xmit++
 			segment.fastack = 0
 			segment.rto = kcp.rx_rto
 			segment.resendts = current + segment.rto
@@ -772,7 +764,6 @@ func (kcp *KCP) flush(ackOnly bool) {
 			fastRetransSegs++
 		} else if segment.fastack > 0 && newSegsCount == 0 { // early retransmit
 			needsend = true
-			segment.xmit++
 			segment.fastack = 0
 			segment.rto = kcp.rx_rto
 			segment.resendts = current + segment.rto
@@ -781,9 +772,10 @@ func (kcp *KCP) flush(ackOnly bool) {
 		}
 
 		if needsend {
+			segment.xmit++
 			segment.ts = current
 			segment.wnd = seg.wnd
-			segment.una = kcp.rcv_nxt
+			segment.una = seg.una
 
 			size := len(buffer) - len(ptr)
 			need := IKCP_OVERHEAD + len(segment.data)
@@ -829,7 +821,7 @@ func (kcp *KCP) flush(ackOnly bool) {
 
 	// update ssthresh
 	// rate halving, https://tools.ietf.org/html/rfc6937
-	if change != 0 {
+	if change > 0 {
 		inflight := kcp.snd_nxt - kcp.snd_una
 		kcp.ssthresh = inflight / 2
 		if kcp.ssthresh < IKCP_THRESH_MIN {
@@ -840,7 +832,7 @@ func (kcp *KCP) flush(ackOnly bool) {
 	}
 
 	// congestion control, https://tools.ietf.org/html/rfc5681
-	if lost {
+	if lost > 0 {
 		kcp.ssthresh = cwnd / 2
 		if kcp.ssthresh < IKCP_THRESH_MIN {
 			kcp.ssthresh = IKCP_THRESH_MIN

@@ -15,6 +15,7 @@ import (
 	rawLog "log"
 	"net"
 	"net/http"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 )
@@ -180,6 +181,7 @@ func serveHttps(addr string) {
 			continue
 		}
 		go func() {
+			conn.SetDeadline(time.Now().Add(time.Second * 20))
 			sconn, info, err := vhost.GetHttpsHostname(conn)
 			if err != nil {
 				log.WithFields(log.Fields{"err": err}).Errorln("vhost.GetHttpRequestInfo failed!")
@@ -196,6 +198,7 @@ func serveHttps(addr string) {
 					return
 				}
 				tlcConn := tls.Server(sconn, tlsConfig)
+				conn.SetDeadline(time.Time{})
 				go proxyConn(tlcConn, tunnel.ctl, tunnel.tunnelName)
 			} else {
 				conn.Close()
@@ -218,6 +221,7 @@ func serveHttp(addr string) {
 			continue
 		}
 		go func() {
+			conn.SetDeadline(time.Now().Add(time.Second * 20))
 			sconn, info, err := vhost.GetHttpRequestInfo(conn)
 			if err != nil {
 				conn.Close()
@@ -227,6 +231,7 @@ func serveHttp(addr string) {
 			TunnelMapLock.RLock()
 			tunnel, isok := TunnelMap[fmt.Sprintf("http://%s:%d", info["Host"], serverConf.HttpPort)]
 			TunnelMapLock.RUnlock()
+			conn.SetDeadline(time.Time{})
 			if isok {
 				go proxyConn(sconn, tunnel.ctl, tunnel.tunnelName)
 			} else {

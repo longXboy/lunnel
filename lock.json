@@ -1,18 +1,10 @@
 {
-    "memo": "a16f0304ada2dbad3693058536438ca07d485e13d0b6b4d9400200872eb9cd28",
+    "memo": "99667e343b448ce09d7d7688cb4849d359fd2f2812a29867bbac0189fd9be6d6",
     "projects": [
         {
             "name": "github.com/Sirupsen/logrus",
             "version": "v0.11.5",
             "revision": "ba1b36c82c5e05c4f912a88eab0dcd91a171688f",
-            "packages": [
-                "."
-            ]
-        },
-        {
-            "name": "github.com/gorilla/context",
-            "version": "v1.1",
-            "revision": "1ea25387ff6f684839d82767c1733ff4d4d15d0a",
             "packages": [
                 "."
             ]
@@ -51,8 +43,8 @@
         },
         {
             "name": "github.com/xtaci/kcp-go",
-            "version": "v3.9",
-            "revision": "50c1512c989b229ccda2d08f75819f57661f534a",
+            "version": "v3.11",
+            "revision": "af68a93e677c27321b7c23f7baab167aafbe9d4d",
             "packages": [
                 "."
             ]
@@ -75,7 +67,7 @@
         {
             "name": "golang.org/x/net",
             "branch": "master",
-            "revision": "3e967e1d28d2c9c06e749dc2bdc14b04df89e689",
+            "revision": "6c23252515492caf9b228a9d5cabcdbde29f7f82",
             "packages": [
                 "bpf",
                 "internal/iana",
@@ -86,7 +78,7 @@
         {
             "name": "golang.org/x/sys",
             "branch": "master",
-            "revision": "8fd966b47dbdd4faa03de0d06e3d733baeb9a1a9",
+            "revision": "afadfcc7779c1f4db0f6f6438afcb108d9c9c7cd",
             "packages": [
                 "unix"
             ]
