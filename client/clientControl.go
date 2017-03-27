@@ -1,11 +1,6 @@
 package main
 
 import (
-	"Lunnel/crypto"
-	"Lunnel/msg"
-	"Lunnel/smux"
-	"Lunnel/transport"
-	"Lunnel/util"
 	"crypto/tls"
 	"io"
 	"net"
@@ -14,6 +9,11 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/longXboy/Lunnel/crypto"
+	"github.com/longXboy/Lunnel/msg"
+	"github.com/longXboy/Lunnel/transport"
+	"github.com/longXboy/Lunnel/util"
+	"github.com/longXboy/smux"
 	"github.com/pkg/errors"
 )
 

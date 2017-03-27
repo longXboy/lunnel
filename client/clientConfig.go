@@ -1,7 +1,6 @@
 package main
 
 import (
-	"Lunnel/msg"
 	"crypto/sha1"
 	"encoding/json"
 	"io/ioutil"
@@ -11,6 +10,7 @@ import (
 	"strings"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/longXboy/Lunnel/msg"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/pbkdf2"
 	"gopkg.in/yaml.v2"

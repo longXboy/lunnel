@@ -15,7 +15,6 @@
 package vhost
 
 import (
-	"Lunnel/util"
 	"bufio"
 	"bytes"
 	"io"
@@ -23,6 +22,8 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/longXboy/Lunnel/util"
 
 	"github.com/pkg/errors"
 )

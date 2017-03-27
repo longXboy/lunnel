@@ -76,16 +76,15 @@ func newSession(config *Config, conn io.ReadWriteCloser, client bool) *Session {
 }
 
 // OpenStream is used to create a new stream
-func (s *Session) OpenStream(tunnelName string) (*Stream, error) {
+func (s *Session) OpenStream() (*Stream, error) {
 	if s.IsClosed() {
 		return nil, errors.New(errBrokenPipe)
 	}
 
 	sid := atomic.AddUint32(&s.nextStreamID, 2)
-	stream := newStream(sid, s.config.MaxFrameSize, s, tunnelName)
-	f := newFrame(cmdSYN, sid)
-	f.data = []byte(tunnelName)
-	if _, err := s.writeFrame(f); err != nil {
+	stream := newStream(sid, s.config.MaxFrameSize, s)
+
+	if _, err := s.writeFrame(newFrame(cmdSYN, sid)); err != nil {
 		return nil, errors.Wrap(err, "writeFrame")
 	}
 
@@ -229,7 +228,7 @@ func (s *Session) recvLoop() {
 			case cmdSYN:
 				s.streamLock.Lock()
 				if _, ok := s.streams[f.sid]; !ok {
-					stream := newStream(f.sid, s.config.MaxFrameSize, s, string(f.data))
+					stream := newStream(f.sid, s.config.MaxFrameSize, s)
 					s.streams[f.sid] = stream
 					select {
 					case s.chAccepts <- stream:

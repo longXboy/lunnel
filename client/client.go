@@ -1,10 +1,6 @@
 package main
 
 import (
-	"Lunnel/crypto"
-	"Lunnel/msg"
-	"Lunnel/smux"
-	"Lunnel/transport"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -17,6 +13,10 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/klauspost/compress/snappy"
+	"github.com/longXboy/Lunnel/crypto"
+	"github.com/longXboy/Lunnel/msg"
+	"github.com/longXboy/Lunnel/transport"
+	"github.com/longXboy/smux"
 )
 
 const reconnectInterval = 10

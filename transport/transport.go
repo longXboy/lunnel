@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"Lunnel/transport/kcp"
 	"bufio"
 	"encoding/base64"
 	"fmt"
@@ -9,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+
+	"github.com/longXboy/Lunnel/transport/kcp"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"

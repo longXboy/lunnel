@@ -1,12 +1,12 @@
 package msg
 
 import (
-	"Lunnel/crypto"
 	"encoding/json"
 	"fmt"
 	"net"
 	"time"
 
+	"github.com/longXboy/Lunnel/crypto"
 	"github.com/pkg/errors"
 )
 

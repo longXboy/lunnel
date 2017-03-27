@@ -1,12 +1,6 @@
 package main
 
 import (
-	"Lunnel/contrib"
-	"Lunnel/crypto"
-	"Lunnel/msg"
-	"Lunnel/smux"
-	"Lunnel/transport"
-	"Lunnel/vhost"
 	"crypto/tls"
 	"encoding/json"
 	"flag"
@@ -18,6 +12,12 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/longXboy/Lunnel/contrib"
+	"github.com/longXboy/Lunnel/crypto"
+	"github.com/longXboy/Lunnel/msg"
+	"github.com/longXboy/Lunnel/transport"
+	"github.com/longXboy/Lunnel/vhost"
+	"github.com/longXboy/smux"
 )
 
 func main() {
