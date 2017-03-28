@@ -1,4 +1,4 @@
-server_addr: "lunnel.snakeoil.com:8080"
+server_addr: "example.com:8080"
 tunnels: 
   2048: 
     proto: "http"
@@ -9,5 +9,5 @@ tunnels:
   docker: 
     proto: "http"
     local: "unix:///var/run/docker.sock"
-encrypt_mode: "aes"
-secret_key: "defaultpass"
+tls: 
+  trusted_cert: "../assets/client/cacert.pem"

@@ -1,0 +1,74 @@
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number: 2 (0x2)
+    Signature Algorithm: sha256WithRSAEncryption
+        Issuer: C=CN, ST=SH, L=SH, O=Daocloud.io, OU=IT, CN=example.com/emailAddress=longxia.cao@daocloud.io
+        Validity
+            Not Before: Mar 28 14:03:13 2017 GMT
+            Not After : Mar  8 14:03:13 2038 GMT
+        Subject: C=CN, ST=SH, O=example.com, OU=IT, CN=www.example.com/emailAddress=admin@example.com
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+                Public-Key: (2048 bit)
+                Modulus:
+                    00:be:0c:fb:d4:69:33:93:4d:c4:22:f4:bc:34:48:
+                    c3:c4:28:ae:c7:65:08:53:66:2e:ce:fd:35:4e:8f:
+                    b3:db:1a:f4:1b:53:37:40:5e:24:ff:b0:d8:8d:b2:
+                    c1:d2:64:5e:40:fc:ed:0e:1c:a8:5e:34:3c:3e:d2:
+                    bf:a5:6a:3c:2d:f1:b5:10:c6:8d:bc:1e:10:59:54:
+                    3b:14:cf:2e:c4:29:93:a8:06:f6:73:6f:1a:3d:a8:
+                    d9:b1:37:f9:52:61:97:05:88:da:d1:e2:22:1d:27:
+                    ed:b7:ed:1c:8c:b2:d2:3c:f6:ab:ab:15:92:be:5a:
+                    a0:e2:73:5a:de:c9:8f:2c:a6:1d:3e:7e:2e:6d:0b:
+                    ae:bf:d8:a9:f5:71:02:e2:e8:54:75:2e:2b:b4:7d:
+                    f4:47:e1:ad:8d:6d:d5:b6:e9:aa:f8:28:ae:62:d4:
+                    78:6f:5c:d2:10:60:b5:bc:31:e1:4a:ab:63:3a:8a:
+                    cc:eb:02:b7:82:83:e1:5d:df:59:0f:06:9a:a3:b9:
+                    89:93:4d:74:33:e9:02:77:4d:95:54:34:f6:94:4d:
+                    67:f3:9f:29:8a:6a:25:b8:c4:1b:c0:2f:12:ca:40:
+                    5b:5b:d6:84:a7:dc:88:6f:1d:50:e3:bb:61:9d:d7:
+                    70:36:69:ac:a3:32:51:f4:3a:00:c6:bf:3d:0e:de:
+                    be:69
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Subject Alternative Name: 
+                DNS:*.example.com, DNS:example.com
+    Signature Algorithm: sha256WithRSAEncryption
+         8a:0c:82:bc:ba:63:28:66:86:19:85:52:a9:f9:28:cc:a1:ef:
+         b1:03:c4:64:ce:11:33:b0:a8:3c:28:17:f6:eb:3d:7d:46:be:
+         71:c6:04:4a:64:54:b7:d1:83:6d:ef:88:99:3d:94:ec:56:6a:
+         fe:3b:70:93:7d:35:24:4b:f7:a9:24:bb:d9:5f:51:62:fe:54:
+         ac:a9:ba:38:3b:87:f3:9c:4a:a4:02:3e:8b:3f:c0:c5:bf:d2:
+         da:64:72:7c:04:7c:5a:c3:53:3c:93:9b:fb:45:11:65:9c:ee:
+         c3:d2:d9:c1:2a:b2:67:c9:d6:f6:e4:f1:2b:b7:02:ea:5d:b4:
+         de:10:19:d7:77:21:a1:4f:91:a8:3b:2c:58:9e:97:c9:2d:d0:
+         f2:a8:ea:ec:11:81:6f:76:25:96:bf:98:46:58:0b:4e:5a:c7:
+         4b:d3:98:04:45:8c:53:c5:bc:c2:7d:74:e6:15:d4:99:c0:5e:
+         1a:56:11:95:df:a5:c7:5e:8a:97:bd:22:68:5f:52:c2:29:c6:
+         33:79:f6:03:92:2c:6d:b9:0e:40:bd:58:d1:61:3b:fe:8d:89:
+         3b:84:aa:05:02:ed:3d:ed:d7:1a:6c:2e:4e:fc:b5:15:2b:78:
+         7a:8c:c3:9b:eb:02:d6:90:fc:3f:7e:9c:63:7c:6c:db:99:27:
+         12:a5:d2:bb
+-----BEGIN CERTIFICATE-----
+MIIDpjCCAo6gAwIBAgIBAjANBgkqhkiG9w0BAQsFADCBiDELMAkGA1UEBhMCQ04x
+CzAJBgNVBAgMAlNIMQswCQYDVQQHDAJTSDEUMBIGA1UECgwLRGFvY2xvdWQuaW8x
+CzAJBgNVBAsMAklUMRQwEgYDVQQDDAtleGFtcGxlLmNvbTEmMCQGCSqGSIb3DQEJ
+ARYXbG9uZ3hpYS5jYW9AZGFvY2xvdWQuaW8wHhcNMTcwMzI4MTQwMzEzWhcNMzgw
+MzA4MTQwMzEzWjB5MQswCQYDVQQGEwJDTjELMAkGA1UECAwCU0gxFDASBgNVBAoM
+C2V4YW1wbGUuY29tMQswCQYDVQQLDAJJVDEYMBYGA1UEAwwPd3d3LmV4YW1wbGUu
+Y29tMSAwHgYJKoZIhvcNAQkBFhFhZG1pbkBleGFtcGxlLmNvbTCCASIwDQYJKoZI
+hvcNAQEBBQADggEPADCCAQoCggEBAL4M+9RpM5NNxCL0vDRIw8QorsdlCFNmLs79
+NU6Ps9sa9BtTN0BeJP+w2I2ywdJkXkD87Q4cqF40PD7Sv6VqPC3xtRDGjbweEFlU
+OxTPLsQpk6gG9nNvGj2o2bE3+VJhlwWI2tHiIh0n7bftHIyy0jz2q6sVkr5aoOJz
+Wt7JjyymHT5+Lm0Lrr/YqfVxAuLoVHUuK7R99EfhrY1t1bbpqvgormLUeG9c0hBg
+tbwx4UqrYzqKzOsCt4KD4V3fWQ8GmqO5iZNNdDPpAndNlVQ09pRNZ/OfKYpqJbjE
+G8AvEspAW1vWhKfciG8dUOO7YZ3XcDZprKMyUfQ6AMa/PQ7evmkCAwEAAaMpMCcw
+JQYDVR0RBB4wHIINKi5leGFtcGxlLmNvbYILZXhhbXBsZS5jb20wDQYJKoZIhvcN
+AQELBQADggEBAIoMgry6YyhmhhmFUqn5KMyh77EDxGTOETOwqDwoF/brPX1GvnHG
+BEpkVLfRg23viJk9lOxWav47cJN9NSRL96kku9lfUWL+VKypujg7h/OcSqQCPos/
+wMW/0tpkcnwEfFrDUzyTm/tFEWWc7sPS2cEqsmfJ1vbk8Su3AupdtN4QGdd3IaFP
+kag7LFiel8kt0PKo6uwRgW92JZa/mEZYC05ax0vTmARFjFPFvMJ9dOYV1JnAXhpW
+EZXfpcdeipe9ImhfUsIpxjN59gOSLG25DkC9WNFhO/6NiTuEqgUC7T3t1xpsLk78
+tRUreHqMw5vrAtaQ/D9+nGN8bNuZJxKl0rs=
+-----END CERTIFICATE-----

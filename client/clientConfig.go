@@ -16,20 +16,28 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+type Aes struct {
+	SecretKey string `yaml:"key,omitempty"`
+}
+
+type Tls struct {
+	TrustedCert string `yaml:"trusted_cert,omitempty"`
+	ServerName  string `yaml:"server_name,omitempty"`
+}
+
 type Config struct {
 	Prod    bool   `yaml:"prod,omitempty"`
 	LogFile string `yaml:"log_file,omitempty"`
 	//if EncryptMode is tls and ServerName is empty,ServerAddr can't be IP format
 	ServerAddr  string `yaml:"server_addr"`
-	ServerName  string `yaml:"server_name,omitempty"`
-	TrustedCert string `yaml:"trusted_cert,omitempty"`
-	SecretKey   string `yaml:"secret_key,omitempty"`
+	Aes         Aes    `yaml:"aes,omitempty"`
+	Tls         Tls    `yaml:"tls,omitempty"`
+	EncryptMode string `yaml:"encrypt_mode,omitempty"`
 	//none:no encryption
 	//aes:encrpted by aes
 	//tls:encrpted by tls,which is default
-	EncryptMode string                      `yaml:"encrypt_mode,omitempty"`
-	Tunnels     map[string]msg.TunnelConfig `yaml:"tunnels"`
-	AuthToken   string                      `yaml:"auth_token,omitempty"`
+	Tunnels   map[string]msg.TunnelConfig `yaml:"tunnels"`
+	AuthToken string                      `yaml:"auth_token,omitempty"`
 	//mix: switch between kcp and tcp automatically,which is default
 	//kcp: communicate with server in kcp
 	//tcp: communicate with server in tcp
@@ -58,27 +66,37 @@ func LoadConfig(configFile string) error {
 		}
 	}
 	if cliConf.ServerAddr == "" {
-		cliConf.ServerAddr = "lunnel.snakeoil.com:8080"
+		cliConf.ServerAddr = "example.com:8080"
 	}
 	if cliConf.EncryptMode == "" {
-		cliConf.EncryptMode = "tls"
+		if cliConf.Aes.SecretKey != "" {
+			cliConf.EncryptMode = "aes"
+		}
+		if cliConf.Tls.TrustedCert != "" || cliConf.Tls.ServerName != "" {
+			cliConf.EncryptMode = "tls"
+		}
+		if cliConf.EncryptMode == "" {
+			cliConf.EncryptMode = "none"
+		}
 	}
 	if cliConf.EncryptMode == "aes" {
-		if cliConf.SecretKey == "" {
+		if cliConf.Aes.SecretKey != "" {
 			log.Fatalln("client can't start AES mode without configuring SecretKey")
 		}
-		pass := pbkdf2.Key([]byte(cliConf.SecretKey), []byte("lunnel"), 4096, 32, sha1.New)
-		cliConf.SecretKey = string(pass[:16])
-	}
-	if cliConf.EncryptMode != "tls" && cliConf.EncryptMode != "aes" && cliConf.EncryptMode != "none" {
-		return errors.New("invalid EncryptMode")
-	}
-	if cliConf.EncryptMode == "tls" && cliConf.ServerName == "" {
-		var err error
-		cliConf.ServerName, err = resovleServerName(cliConf.ServerAddr)
-		if err != nil {
-			return errors.Wrap(err, "resovleServerName")
+		pass := pbkdf2.Key([]byte(cliConf.Aes.SecretKey), []byte("lunnel"), 4096, 32, sha1.New)
+		cliConf.Aes.SecretKey = string(pass[:16])
+	} else if cliConf.EncryptMode == "tls" {
+		if cliConf.Tls.ServerName == "" {
+			var err error
+			cliConf.Tls.ServerName, err = resovleServerName(cliConf.ServerAddr)
+			if err != nil {
+				return errors.Wrap(err, "resovleServerName")
+			}
 		}
+	} else if cliConf.EncryptMode == "none" {
+		log.Warningln("no tranport encryption secified,it may be not safe")
+	} else {
+		log.Fatalln("invalid encyption:", cliConf.EncryptMode)
 	}
 	if len(cliConf.Tunnels) == 0 {
 		log.Warningln("no proxying tunnels sepcified")

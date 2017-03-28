@@ -1,3 +1,7 @@
-server_domain: "lunnel.snakeoil.com"
-aes: 
-  secret_key: "defaultpass"
+server_domain: "example.com"
+port: 8080
+aes:
+  key: "password"
+tls:
+  cert: "../assets/server/example.crt"
+  key: "../assets/server/example.key"

@@ -15,12 +15,12 @@ import (
 )
 
 type Aes struct {
-	SecretKey string `yaml:"secret_key,omitempty"`
+	SecretKey string `yaml:"key,omitempty"`
 }
 
 type Tls struct {
-	TlsCert string `yaml:"tls_cert,omitempty"`
-	TlsKey  string `yaml:"tls_key,omitempty"`
+	TlsCert string `yaml:"cert,omitempty"`
+	TlsKey  string `yaml:"key,omitempty"`
 }
 
 type Config struct {

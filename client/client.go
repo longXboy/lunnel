@@ -25,6 +25,9 @@ func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 	pool := x509.NewCertPool()
 
 	for _, certPath := range rootCertPaths {
+		if certPath == "" {
+			continue
+		}
 		rootCrt, err := ioutil.ReadFile(certPath)
 		if err != nil {
 			return nil, err
@@ -87,16 +90,17 @@ func dialAndRun(transportMode string) {
 	}
 	var ctl *Control
 	if cliConf.EncryptMode == "tls" {
-		tlsConfig, err := LoadTLSConfig([]string{cliConf.TrustedCert})
+		tlsConfig, err := LoadTLSConfig([]string{cliConf.Tls.TrustedCert})
 		if err != nil {
-			log.WithFields(log.Fields{"trusted cert": cliConf.TrustedCert, "err": err}).Fatalln("load tls trusted cert failed!")
+			log.WithFields(log.Fields{"trusted cert": cliConf.Tls.TrustedCert, "err": err}).Fatalln("load tls trusted cert failed!")
 			return
 		}
-		tlsConfig.ServerName = cliConf.ServerName
+		fmt.Println([]string{cliConf.Tls.TrustedCert})
+		tlsConfig.ServerName = cliConf.Tls.ServerName
 		tlsConn := tls.Client(stream, tlsConfig)
 		ctl = NewControl(tlsConn, cliConf.EncryptMode, transportMode)
 	} else if cliConf.EncryptMode == "aes" {
-		cryptoConn, err := crypto.NewCryptoConn(stream, []byte(cliConf.SecretKey))
+		cryptoConn, err := crypto.NewCryptoConn(stream, []byte(cliConf.Aes.SecretKey))
 		if err != nil {
 			log.WithFields(log.Fields{"err": err}).Errorln("client hello,crypto.NewCryptoConn failed!")
 			return
