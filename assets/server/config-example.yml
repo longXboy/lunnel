@@ -1,2 +1,3 @@
-encrypt_mode: "aes"
 server_domain: "lunnel.snakeoil.com"
+aes: 
+  secret_key: "defaultpass"

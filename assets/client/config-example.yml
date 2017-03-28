@@ -1,4 +1,3 @@
-trusted_cert: "../assets/client/cacert.pem"
 server_addr: "lunnel.snakeoil.com:8080"
 tunnels: 
   2048: 
@@ -11,4 +10,4 @@ tunnels:
     proto: "http"
     local: "unix:///var/run/docker.sock"
 encrypt_mode: "aes"
-
+secret_key: "defaultpass"

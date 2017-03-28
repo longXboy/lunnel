@@ -24,22 +24,28 @@ type Stream struct {
 	dieLock       sync.Mutex
 	readDeadline  atomic.Value
 	writeDeadline atomic.Value
+	tunnelName    string
 }
 
 // newStream initiates a Stream struct
-func newStream(id uint32, frameSize int, sess *Session) *Stream {
+func newStream(id uint32, frameSize int, sess *Session, data string) *Stream {
 	s := new(Stream)
 	s.id = id
 	s.chReadEvent = make(chan struct{}, 1)
 	s.frameSize = frameSize
 	s.sess = sess
 	s.die = make(chan struct{})
+	s.tunnelName = data
 	return s
 }
 
 // ID returns the unique stream ID.
 func (s *Stream) ID() uint32 {
 	return s.id
+}
+
+func (s *Stream) TunnelName() string {
+	return s.tunnelName
 }
 
 // Read implements net.Conn

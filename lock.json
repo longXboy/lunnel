@@ -1,5 +1,5 @@
 {
-    "memo": "218dc0d099203e81b54fd12205b47ebde383326a8dd498cf7ec8a2f35e0c9443",
+    "memo": "425fcec93da495303f15c80a448934e791b95bfc38fa39c7761b3c30281cffbd",
     "projects": [
         {
             "name": "github.com/Sirupsen/logrus",
@@ -35,8 +35,7 @@
         },
         {
             "name": "github.com/longXboy/smux",
-            "version": "v1.0.5",
-            "revision": "a1a5df8f92af764f378f07d6a3dd8eb3f7aa190a",
+            "revision": "9c97aa9117464d9101996f3c08e06b17480ffe2f",
             "packages": [
                 "."
             ]
