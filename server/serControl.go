@@ -284,10 +284,7 @@ func (c *Control) pipeManage() {
 }
 
 func (c *Control) Close() {
-	select {
-	case c.toDie <- struct{}{}:
-	default:
-	}
+	c.toDie <- struct{}{}
 	log.WithField("time", time.Now().UnixNano()).Infoln("control closing")
 	return
 }

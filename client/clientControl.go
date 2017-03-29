@@ -4,8 +4,11 @@ import (
 	"crypto/tls"
 	"io"
 	"net"
+	"os"
+	"os/signal"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -55,10 +58,7 @@ type Control struct {
 }
 
 func (c *Control) Close() {
-	select {
-	case c.toDie <- struct{}{}:
-	default:
-	}
+	c.toDie <- struct{}{}
 	log.WithField("time", time.Now().UnixNano()).Infoln("control closing")
 	return
 }
@@ -228,10 +228,26 @@ func (c *Control) writeLoop() {
 	}
 
 }
+
+func (c *Control) listenAndStop() {
+	sigChan := make(chan os.Signal)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+	select {
+	case s := <-sigChan:
+		log.WithFields(log.Fields{"signal": s.String()}).Infoln("got signal to stop")
+		c.Close()
+		time.Sleep(time.Millisecond * 300)
+		os.Exit(1)
+	case <-c.die:
+		signal.Reset()
+	}
+}
+
 func (c *Control) Run() {
 	go c.moderator()
 	go c.recvLoop()
 	go c.writeLoop()
+	go c.listenAndStop()
 
 	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
