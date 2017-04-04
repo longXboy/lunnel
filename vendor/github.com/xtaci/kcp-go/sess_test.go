@@ -248,10 +248,6 @@ func TestTimeout(t *testing.T) {
 	if n != 0 || err == nil {
 		t.Fail()
 	}
-	n, err = cli.Write(buf)
-	if n != 0 || err == nil {
-		t.Fail()
-	}
 	cli.Close()
 }
 
@@ -448,18 +444,7 @@ func sink_tester(cli *UDPSession, msglen, msgcount int) error {
 			return err
 		}
 	}
-
-	// window checker
-	for {
-		cli.mu.Lock()
-		waitsnd := cli.kcp.WaitSnd()
-		cli.mu.Unlock()
-		if waitsnd != 0 {
-			<-time.After(10 * time.Millisecond)
-		} else {
-			return nil
-		}
-	}
+	return nil
 }
 
 func TestSNMP(t *testing.T) {

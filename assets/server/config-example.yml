@@ -1,7 +1,7 @@
 server_domain: "example.com"
 port: 8080
 aes:
-  key: "password"
+  secret_key: "password"
 tls:
   cert: "../assets/server/example.crt"
   key: "../assets/server/example.key"

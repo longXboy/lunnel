@@ -99,12 +99,10 @@ func WriteMsg(w net.Conn, mType MsgType, in interface{}) error {
 		copy(x[4:], body)
 	}
 	w.SetWriteDeadline(time.Now().Add(time.Second * 10))
-	fmt.Println("ready to send msg:", mType)
 	_, err = w.Write(x)
 	if err != nil {
 		return errors.Wrap(err, "write msg")
 	}
-	fmt.Println("send msg:", mType)
 	w.SetWriteDeadline(time.Time{})
 	return nil
 }

@@ -15,7 +15,7 @@ import (
 )
 
 type Aes struct {
-	SecretKey string `yaml:"key,omitempty"`
+	SecretKey string `yaml:"secret_key,omitempty"`
 }
 
 type Tls struct {

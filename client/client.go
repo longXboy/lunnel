@@ -57,7 +57,6 @@ func dialAndRun(transportMode string) {
 	defer conn.Close()
 	var chello msg.ClientHello
 	chello.EncryptMode = cliConf.EncryptMode
-	fmt.Println("write msg client hello")
 	err = msg.WriteMsg(conn, msg.TypeClientHello, chello)
 	if err != nil {
 		log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("write ControlClientHello failed!")
@@ -73,7 +72,7 @@ func dialAndRun(transportMode string) {
 		log.WithFields(log.Fields{"server error": serverError.Error()}).Warnln("client hello failed!")
 		return
 	} else if mType == msg.TypeServerHello {
-		fmt.Println("recv msg serer hello success")
+		log.Infoln("recv msg serer hello success")
 	}
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.MaxReceiveBuffer = 4194304
@@ -95,7 +94,6 @@ func dialAndRun(transportMode string) {
 			log.WithFields(log.Fields{"trusted cert": cliConf.Tls.TrustedCert, "err": err}).Fatalln("load tls trusted cert failed!")
 			return
 		}
-		fmt.Println([]string{cliConf.Tls.TrustedCert})
 		tlsConfig.ServerName = cliConf.Tls.ServerName
 		tlsConn := tls.Client(stream, tlsConfig)
 		ctl = NewControl(tlsConn, cliConf.EncryptMode, transportMode)
@@ -117,7 +115,7 @@ func dialAndRun(transportMode string) {
 		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientHandShake failed!")
 		return
 	}
-	fmt.Println("client handshake end")
+	log.WithFields(log.Fields{"client_id": ctl.ClientID.Hex()}).Infoln("server handshake success!")
 	err = ctl.ClientAddTunnels()
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientSyncTunnels failed!")
@@ -153,14 +151,12 @@ func main() {
 					transportMode = "kcp"
 				}
 				transportRetry = 0
+				log.WithFields(log.Fields{"transport": transportMode}).Infoln("switch to new transport protocol")
 			}
 		}
 		dialAndRun(transportMode)
 		if time.Now().Sub(start) > time.Duration(pingTimeout*3) {
-			fmt.Println("reset to zero")
 			transportRetry = 0
-		} else {
-			fmt.Println("not reset to zero", time.Now().Unix(), start.Unix(), time.Duration(pingTimeout*3))
 		}
 	}
 }

@@ -17,7 +17,7 @@ import (
 )
 
 type Aes struct {
-	SecretKey string `yaml:"key,omitempty"`
+	SecretKey string `yaml:"secret_key,omitempty"`
 }
 
 type Tls struct {
@@ -80,7 +80,7 @@ func LoadConfig(configFile string) error {
 		}
 	}
 	if cliConf.EncryptMode == "aes" {
-		if cliConf.Aes.SecretKey != "" {
+		if cliConf.Aes.SecretKey == "" {
 			log.Fatalln("client can't start AES mode without configuring SecretKey")
 		}
 		pass := pbkdf2.Key([]byte(cliConf.Aes.SecretKey), []byte("lunnel"), 4096, 32, sha1.New)

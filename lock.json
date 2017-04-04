@@ -50,8 +50,8 @@
         },
         {
             "name": "github.com/xtaci/kcp-go",
-            "version": "v3.11",
-            "revision": "af68a93e677c27321b7c23f7baab167aafbe9d4d",
+            "version": "v3.13",
+            "revision": "de1d7d14c446e243436d6914c59655c87dc71fb7",
             "packages": [
                 "."
             ]
@@ -59,7 +59,7 @@
         {
             "name": "golang.org/x/crypto",
             "branch": "master",
-            "revision": "459e26527287adbc2adcc5d0d49abff9a5f315a7",
+            "revision": "88915ccf7aeb91e9324fe7cf3eddd1531ced61ea",
             "packages": [
                 "blowfish",
                 "cast5",
@@ -74,7 +74,7 @@
         {
             "name": "golang.org/x/net",
             "branch": "master",
-            "revision": "6c23252515492caf9b228a9d5cabcdbde29f7f82",
+            "revision": "ffcf1bedda3b04ebb15a168a59800a73d6dc0f4d",
             "packages": [
                 "bpf",
                 "internal/iana",
@@ -85,7 +85,7 @@
         {
             "name": "golang.org/x/sys",
             "branch": "master",
-            "revision": "afadfcc7779c1f4db0f6f6438afcb108d9c9c7cd",
+            "revision": "9a7256cb28ed514b4e1e5f68959914c4c28a92e0",
             "packages": [
                 "unix"
             ]

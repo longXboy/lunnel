@@ -288,9 +288,10 @@ func handleControl(conn net.Conn, cch *msg.ClientHello) {
 	err = ctl.ServerHandShake()
 	if err != nil {
 		conn.Close()
-		log.WithFields(log.Fields{"err": err, "ClientId": ctl.ClientID}).Errorln("ctl.ServerHandShake failed!")
+		log.WithFields(log.Fields{"err": err, "client_id": ctl.ClientID.Hex()}).Errorln("ctl.ServerHandShake failed!")
 		return
 	}
+	log.WithFields(log.Fields{"client_id": ctl.ClientID.Hex()}).Infoln("client handshake success!")
 	ctl.Serve()
 }
 

@@ -20,8 +20,8 @@ import (
 var maxIdlePipes int = 3
 var maxStreams int = 6
 
-var pingInterval time.Duration = time.Second * 8
-var pingTimeout time.Duration = time.Second * 17
+var pingInterval time.Duration = time.Second * 30
+var pingTimeout time.Duration = time.Second * 70
 var cleanInterval time.Duration = time.Second * 5
 
 var ControlMapLock sync.RWMutex
@@ -87,11 +87,12 @@ type Control struct {
 	lastRead        uint64
 	encryptMode     string
 
-	busyPipes *pipeNode
-	idleCount int
-	idlePipes *pipeNode
-	pipeAdd   chan *smux.Session
-	pipeGet   chan *smux.Session
+	busyPipes  *pipeNode
+	idleCount  int
+	idlePipes  *pipeNode
+	totalPipes int64
+	pipeAdd    chan *smux.Session
+	pipeGet    chan *smux.Session
 
 	die       chan struct{}
 	toDie     chan struct{}
@@ -153,6 +154,7 @@ func (c *Control) putPipe(p *smux.Session) {
 	select {
 	case c.pipeAdd <- p:
 	case <-c.die:
+		atomic.AddInt64(&c.totalPipes, -1)
 		p.Close()
 		return
 	}
@@ -169,6 +171,9 @@ func (c *Control) getPipe() *smux.Session {
 }
 
 func (c *Control) clean() {
+	if atomic.LoadInt64(&c.totalPipes) > int64(maxIdlePipes) {
+		log.WithFields(log.Fields{"total_pipe_count": atomic.LoadInt64(&c.totalPipes), "client_id": c.ClientID.Hex()}).Debugln("total pipe count")
+	}
 	busy := c.busyPipes
 	for {
 		if busy == nil {
@@ -189,9 +194,10 @@ func (c *Control) clean() {
 		}
 		if idle.pipe.IsClosed() {
 			c.removeIdleNode(idle)
-		} else if idle.pipe.NumStreams() == 0 && c.idleCount > maxIdlePipes {
-			log.WithFields(log.Fields{"time": time.Now().Unix(), "pipe": fmt.Sprintf("%p", idle.pipe)}).Infoln("remove and close idle")
+		} else if idle.pipe.NumStreams() == 0 && c.idleCount >= maxIdlePipes {
+			log.WithFields(log.Fields{"time": time.Now().Unix(), "pipe": fmt.Sprintf("%p", idle.pipe), "client_id": c.ClientID.Hex()}).Infoln("remove and close idle")
 			c.removeIdleNode(idle)
+			atomic.AddInt64(&c.totalPipes, -1)
 			idle.pipe.Close()
 		}
 		idle = idle.next
@@ -267,7 +273,7 @@ func (c *Control) pipeManage() {
 		case <-ticker.C:
 			c.clean()
 		case c.pipeGet <- available:
-			log.WithFields(log.Fields{"pipe": fmt.Sprintf("%p", available)}).Infoln("dispatch pipe to consumer")
+			log.WithFields(log.Fields{"pipe": fmt.Sprintf("%p", available), "client_id": c.ClientID.Hex()}).Infoln("dispatch pipe to consumer")
 			available = nil
 		case p := <-c.pipeAdd:
 			if !p.IsClosed() {
@@ -300,7 +306,7 @@ func (c *Control) IsClosed() bool {
 
 func (c *Control) moderator() {
 	_ = <-c.toDie
-	log.WithFields(log.Fields{"ClientId": c.ClientID}).Infoln("client going to close")
+	log.WithFields(log.Fields{"ClientId": c.ClientID.Hex()}).Infoln("client going to close")
 	close(c.die)
 	c.tunnelLock.Lock()
 	for _, t := range c.tunnels {
@@ -313,6 +319,7 @@ func (c *Control) moderator() {
 			break
 		}
 		if !idle.pipe.IsClosed() {
+			atomic.AddInt64(&c.totalPipes, -1)
 			idle.pipe.Close()
 		}
 		idle = idle.next
@@ -323,6 +330,7 @@ func (c *Control) moderator() {
 			break
 		}
 		if !busy.pipe.IsClosed() {
+			atomic.AddInt64(&c.totalPipes, -1)
 			busy.pipe.Close()
 		}
 		busy = busy.next
@@ -338,7 +346,7 @@ func (c *Control) recvLoop() {
 		}
 		mType, body, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
 		if err != nil {
-			log.WithFields(log.Fields{"err": err}).Warningln("ReadMsgWithoutTimeout failed")
+			log.WithFields(log.Fields{"err": err, "client_Id": c.ClientID.Hex()}).Warningln("ReadMsgWithoutTimeout in recvLoop failed")
 			c.Close()
 			return
 		}
@@ -372,9 +380,9 @@ func (c *Control) writeLoop() {
 				idx++
 			}
 			lastWrite = time.Now()
-			log.WithFields(log.Fields{"mType": msgBody.mType, "body": fmt.Sprintf("%v", msgBody.body)}).Infoln("send msg to client")
 			err := msg.WriteMsg(c.ctlConn, msgBody.mType, msgBody.body)
 			if err != nil {
+				log.WithFields(log.Fields{"mType": msgBody.mType, "body": fmt.Sprintf("%v", msgBody.body), "client_id": c.ClientID.Hex(), "err": err}).Warningln("send msg to client failed!")
 				c.Close()
 				return
 			}
@@ -398,6 +406,7 @@ func (c *Control) Serve() {
 		select {
 		case <-ticker.C:
 			if (uint64(time.Now().UnixNano()) - atomic.LoadUint64(&c.lastRead)) > uint64(pingTimeout) {
+				log.WithFields(log.Fields{"client_id": c.ClientID.Hex()}).Warningln("recv client ping time out!")
 				c.Close()
 				return
 			}
@@ -466,7 +475,7 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
 		if tunnelConfig.Protocol == "tcp" || tunnelConfig.Protocol == "udp" {
 			lis, err = net.Listen(tunnelConfig.Protocol, fmt.Sprintf("%s:%d", serverConf.ListenIP, tunnelConfig.RemotePort))
 			if err != nil {
-				log.WithFields(log.Fields{"remote_addr": tunnelConfig.RemoteAddr(), "client_id": c.ClientID}).Warningln("forbidden,remote port already in use")
+				log.WithFields(log.Fields{"remote_addr": tunnelConfig.RemoteAddr(), "client_id": c.ClientID.Hex()}).Warningln("forbidden,remote port already in use")
 				c.writeChan <- writeReq{msg.TypeError, msg.Error{fmt.Sprintf("add tunnels failed!forbidden,remote addrs(%s) already in use", tunnelConfig.RemoteAddr())}}
 				continue
 			}
@@ -501,7 +510,7 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
 		_, isok = TunnelMap[tunnelConfig.RemoteAddr()]
 		if isok {
 			TunnelMapLock.Unlock()
-			log.WithFields(log.Fields{"remote_addr": tunnelConfig.RemoteAddr(), "client_id": c.ClientID}).Warningln("forbidden,remote addrs already in use")
+			log.WithFields(log.Fields{"remote_addr": tunnelConfig.RemoteAddr(), "client_id": c.ClientID.Hex()}).Warningln("forbidden,remote addrs already in use")
 			c.writeChan <- writeReq{msg.TypeError, msg.Error{fmt.Sprintf("add tunnels failed!forbidden,remote addrs(%s) already in use", tunnelConfig.RemoteAddr())}}
 			continue
 		}
@@ -601,5 +610,6 @@ func PipeHandShake(conn net.Conn, phs *msg.PipeClientHello) error {
 		}
 	}
 	ctl.putPipe(sess)
+	atomic.AddInt64(&ctl.totalPipes, 1)
 	return nil
 }
