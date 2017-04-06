@@ -250,7 +250,7 @@ func (s *UDPSession) Write(b []byte) (n int, err error) {
 		}
 
 		// api flow control
-		if s.kcp.WaitSnd() < int(s.kcp.Cwnd()) {
+		if s.kcp.WaitSnd() < int(s.kcp.snd_wnd) {
 			n = len(b)
 			for {
 				if len(b) <= int(s.kcp.mss) {
@@ -504,7 +504,7 @@ func (s *UDPSession) output(buf []byte) {
 func (s *UDPSession) update() (interval time.Duration) {
 	s.mu.Lock()
 	s.kcp.flush(false)
-	if s.kcp.WaitSnd() < int(s.kcp.Cwnd()) {
+	if s.kcp.WaitSnd() < int(s.kcp.snd_wnd) {
 		s.notifyWriteEvent()
 	}
 	interval = s.updateInterval
@@ -830,10 +830,12 @@ func (l *Listener) Close() error {
 }
 
 // closeSession notify the listener that a session has closed
-func (l *Listener) closeSession(remote net.Addr) {
+func (l *Listener) closeSession(remote net.Addr) bool {
 	select {
 	case l.chSessionClosed <- remote:
+		return true
 	case <-l.die:
+		return false
 	}
 }
 
