@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"crypto/tls"
@@ -11,9 +11,9 @@ import (
 	"net"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/klauspost/compress/snappy"
 	"github.com/longXboy/Lunnel/crypto"
+	"github.com/longXboy/Lunnel/log"
 	"github.com/longXboy/Lunnel/msg"
 	"github.com/longXboy/Lunnel/transport"
 	"github.com/longXboy/smux"
@@ -124,14 +124,14 @@ func dialAndRun(transportMode string) {
 	ctl.Run()
 }
 
-func main() {
-	configFile := flag.String("c", "../assets/client/config.yml", "path of config file")
+func Main() {
+	configFile := flag.String("c", "./config.yml", "path of config file")
 	flag.Parse()
 	err := LoadConfig(*configFile)
 	if err != nil {
 		rawLog.Fatalf("load config failed!err:=%v", err)
 	}
-	InitLog()
+	log.Init(cliConf.Prod, cliConf.LogFile)
 
 	var transportMode string
 	var transportRetry int

@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"crypto/tls"
@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/longXboy/Lunnel/crypto"
+	"github.com/longXboy/Lunnel/log"
 	"github.com/longXboy/Lunnel/msg"
 	"github.com/longXboy/Lunnel/transport"
 	"github.com/longXboy/Lunnel/util"
@@ -123,9 +123,20 @@ func (c *Control) createPipe() {
 				return
 			}
 			var conn net.Conn
-			localProto, addr := util.SplitAddr(tunnel.LocalAddr)
+			localProto, hostname, port, err := util.ParseLocalAddr(tunnel.LocalAddr)
+			if err != nil {
+				log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr}).Errorln("util.ParseLocalAddr failed!")
+				return
+			}
 			if localProto == "http" || localProto == "https" || localProto == "" {
-				conn, err = net.Dial("tcp", addr)
+				if port == "" {
+					if localProto == "https" {
+						port = "443"
+					} else {
+						port = "80"
+					}
+				}
+				conn, err = net.Dial("tcp", fmt.Sprintf("%s:%s", hostname, port))
 				if err != nil {
 					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr}).Warningln("pipe dial local failed!")
 					return
@@ -133,8 +144,18 @@ func (c *Control) createPipe() {
 				if tunnel.Protocol == "https" {
 					conn = tls.Client(conn, &tls.Config{InsecureSkipVerify: true})
 				}
+			} else if localProto == "unix" {
+				conn, err = net.Dial("unix", hostname)
+				if err != nil {
+					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr}).Warningln("pipe dial local failed!")
+					return
+				}
 			} else {
-				conn, err = net.Dial(localProto, addr)
+				if port == "" {
+					log.WithFields(log.Fields{"err": fmt.Sprintf("no port sepicified"), "local": tunnel.LocalAddr}).Errorln("dial local addr failed!")
+					return
+				}
+				conn, err = net.Dial(localProto, hostname)
 				if err != nil {
 					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr}).Warningln("pipe dial local failed!")
 					return

@@ -1,6 +1,8 @@
 package util
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -26,10 +28,26 @@ func Int2Short(a uint64) []byte {
 	return link
 }
 
-func SplitAddr(s string) (string, string) {
-	temp := strings.Split(s, "://")
-	if len(temp) != 2 {
-		return "", s
+func ParseLocalAddr(s string) (schema string, hostname string, port string, err error) {
+	temp := strings.SplitN(s, "://", 2)
+	if len(temp) == 1 {
+		hostname = temp[0]
+	} else {
+		schema = temp[0]
+		hostname = temp[1]
 	}
-	return temp[0], temp[1]
+	if hostname == "" {
+		err = fmt.Errorf("tunnel's hostname is empty")
+		return
+	}
+	idx := strings.LastIndex(hostname, ":")
+	if idx >= 0 {
+		port = hostname[idx+1:]
+		hostname = hostname[:idx]
+		_, err = strconv.ParseInt(port, 10, 32)
+		if err != nil {
+			err = fmt.Errorf("tunnel's port is invalid %s", err.Error())
+		}
+	}
+	return
 }

@@ -49,6 +49,7 @@ func (e *Entry) Errorln(args ...interface{}) {
 	for k, v := range e.entry.Data {
 		m[k] = fmt.Sprintf("%v", v)
 	}
+	fmt.Println("send to sentry")
 	raven.CaptureError(errors.New(fmt.Sprintln(args...)), m)
 	e.entry.Errorln(args...)
 }
@@ -62,8 +63,21 @@ func (e *Entry) Warningln(args ...interface{}) {
 	for k, v := range e.entry.Data {
 		m[k] = fmt.Sprintf("%v", v)
 	}
+	fmt.Println("send to sentry")
+
 	raven.CaptureMessage(fmt.Sprintln(args...), m)
 	e.entry.Warningln(args...)
+}
+
+func (e *Entry) Warnln(args ...interface{}) {
+	m := make(map[string]string)
+	for k, v := range e.entry.Data {
+		m[k] = fmt.Sprintf("%v", v)
+	}
+	fmt.Println("send to sentry")
+
+	raven.CaptureMessage(fmt.Sprintln(args...), m)
+	e.entry.Warnln(args...)
 }
 
 func WithField(key string, value interface{}) *Entry {
@@ -90,6 +104,10 @@ func Fatalln(args ...interface{}) {
 	logrus.Fatalln(args...)
 }
 
+func Warnln(args ...interface{}) {
+	raven.CaptureMessage(fmt.Sprintln(args...), nil)
+	logrus.Warnln(args...)
+}
 func Warningln(args ...interface{}) {
 	raven.CaptureMessage(fmt.Sprintln(args...), nil)
 	logrus.Warningln(args...)

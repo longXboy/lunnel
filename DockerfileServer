@@ -6,7 +6,7 @@ RUN apk add --update \
 
 copy . /go/src/github.com/longXboy/Lunnel
 
-RUN go install github.com/longXboy/Lunnel/server
+RUN go install github.com/longXboy/Lunnel/cmd/lunnelSer
 
-ENTRYPOINT ["server"]
+ENTRYPOINT ["lunnelSer"]
 CMD ["-c","./config.yml"]

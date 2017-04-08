@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"fmt"
@@ -273,7 +273,7 @@ func (c *Control) pipeManage() {
 		case <-ticker.C:
 			c.clean()
 		case c.pipeGet <- available:
-			log.WithFields(log.Fields{"pipe": fmt.Sprintf("%p", available), "client_id": c.ClientID.Hex()}).Infoln("dispatch pipe to consumer")
+			log.WithFields(log.Fields{"pipe": fmt.Sprintf("%p", available), "client_id": c.ClientID.Hex()}).Debugln("dispatch pipe to consumer")
 			available = nil
 		case p := <-c.pipeAdd:
 			if !p.IsClosed() {

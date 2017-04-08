@@ -54,11 +54,12 @@ type PipeClientHello struct {
 }
 
 type TunnelConfig struct {
-	Protocol   string `yaml:"proto"`
-	LocalAddr  string `yaml:"local"`
-	Subdomain  string `yaml:"subdomain,omitempty"`
-	Hostname   string `yaml:"hostname,omitempty"`
-	RemotePort uint16 `yaml:"remote_port,omitempty"`
+	Protocol    string `yaml:"proto"`
+	LocalAddr   string `yaml:"local"`
+	Subdomain   string `yaml:"subdomain,omitempty"`
+	Hostname    string `yaml:"hostname,omitempty"`
+	RemotePort  uint16 `yaml:"remote_port,omitempty"`
+	HostRewrite bool   `yaml:"host_rewrite,omitempty"`
 }
 
 func (tc TunnelConfig) RemoteAddr() string {

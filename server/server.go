@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"crypto/tls"
@@ -17,12 +17,13 @@ import (
 	"github.com/longXboy/Lunnel/log"
 	"github.com/longXboy/Lunnel/msg"
 	"github.com/longXboy/Lunnel/transport"
+	"github.com/longXboy/Lunnel/util"
 	"github.com/longXboy/Lunnel/vhost"
 	"github.com/longXboy/smux"
 )
 
-func main() {
-	configFile := flag.String("c", "../assets/server/config.yml", "path of config file")
+func Main() {
+	configFile := flag.String("c", "./config.yml", "path of config file")
 	flag.Parse()
 	err := LoadConfig(*configFile)
 	if err != nil {
@@ -117,6 +118,7 @@ func serve(lis net.Listener) {
 	for {
 		if conn, err := lis.Accept(); err == nil {
 			go func() {
+
 				mType, body, err := msg.ReadMsg(conn)
 				if err != nil {
 					conn.Close()
@@ -187,7 +189,7 @@ func serveHttps(addr string) {
 			conn.SetDeadline(time.Now().Add(time.Second * 20))
 			sconn, info, err := vhost.GetHttpsHostname(conn)
 			if err != nil {
-				log.WithFields(log.Fields{"err": err}).Errorln("vhost.GetHttpRequestInfo failed!")
+				log.WithFields(log.Fields{"err": err}).Warningln("vhost.GetHttpRequestInfo failed!")
 				return
 			}
 			TunnelMapLock.RLock()
@@ -200,9 +202,9 @@ func serveHttps(addr string) {
 					conn.Close()
 					return
 				}
-				tlcConn := tls.Server(sconn, tlsConfig)
+				tlsConn := tls.Server(sconn, tlsConfig)
 				conn.SetDeadline(time.Time{})
-				go proxyConn(tlcConn, tunnel.ctl, tunnel.tunnelName)
+				go proxyConn(tlsConn, tunnel.ctl, tunnel.tunnelName)
 			} else {
 				conn.Close()
 				return
@@ -228,12 +230,27 @@ func serveHttp(addr string) {
 			sconn, info, err := vhost.GetHttpRequestInfo(conn)
 			if err != nil {
 				conn.Close()
-				log.WithFields(log.Fields{"err": err}).Errorln("vhost.GetHttpRequestInfo failed!")
+				log.WithFields(log.Fields{"err": err}).Warningln("vhost.GetHttpRequestInfo failed!")
 				return
 			}
 			TunnelMapLock.RLock()
 			tunnel, isok := TunnelMap[fmt.Sprintf("http://%s:%d", info["Host"], serverConf.HttpPort)]
 			TunnelMapLock.RUnlock()
+			if tunnel.tunnelConfig.HostRewrite {
+				_, hostname, _, err := util.ParseLocalAddr(tunnel.tunnelConfig.LocalAddr)
+				if err != nil {
+					conn.Close()
+					log.WithFields(log.Fields{"err": err}).Errorln("util.ParseLocalAddr failed!")
+					return
+				}
+				sconn, err = vhost.HttpHostNameRewrite(sconn, hostname)
+				if err != nil {
+					conn.Close()
+					log.WithFields(log.Fields{"err": err}).Errorln("vhost.HttpHostNameRewrite failed!")
+					return
+				}
+			}
+
 			conn.SetDeadline(time.Time{})
 			if isok {
 				go proxyConn(sconn, tunnel.ctl, tunnel.tunnelName)

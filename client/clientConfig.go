@@ -1,15 +1,14 @@
-package main
+package client
 
 import (
 	"crypto/sha1"
 	"encoding/json"
 	"io/ioutil"
-	rawLog "log"
 	"net"
 	"os"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/longXboy/Lunnel/log"
 	"github.com/longXboy/Lunnel/msg"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/pbkdf2"
@@ -125,24 +124,4 @@ func resovleServerName(addr string) (string, error) {
 		return "", errors.New("ServerAddress can't be ip format")
 	}
 	return host, nil
-}
-
-func InitLog() {
-	if cliConf.Prod {
-		log.SetLevel(log.InfoLevel)
-	} else {
-		log.SetLevel(log.DebugLevel)
-	}
-	if cliConf.LogFile != "" {
-		f, err := os.OpenFile(cliConf.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
-		if err != nil {
-			rawLog.Fatalf("open log file failed!err:=%v\n", err)
-			return
-		}
-		log.SetOutput(f)
-		log.SetFormatter(&log.JSONFormatter{})
-	} else {
-		log.SetOutput(os.Stdout)
-		log.SetFormatter(&log.TextFormatter{})
-	}
 }

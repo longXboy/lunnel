@@ -6,7 +6,7 @@ RUN apk add --update \
 
 copy . /go/src/github.com/longXboy/Lunnel
 
-RUN go install github.com/longXboy/Lunnel/client
+RUN go install github.com/longXboy/Lunnel/cmd/lunnelCli
 
-ENTRYPOINT ["client"]
+ENTRYPOINT ["lunnelCli"]
 CMD ["-c","./config.yml"]

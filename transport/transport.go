@@ -11,7 +11,7 @@ import (
 
 	"github.com/longXboy/Lunnel/transport/kcp"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/longXboy/Lunnel/log"
 	"github.com/pkg/errors"
 )
 
