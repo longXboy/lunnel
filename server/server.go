@@ -11,9 +11,10 @@ import (
 	"net/http"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/getsentry/raven-go"
 	"github.com/longXboy/Lunnel/contrib"
 	"github.com/longXboy/Lunnel/crypto"
+	"github.com/longXboy/Lunnel/log"
 	"github.com/longXboy/Lunnel/msg"
 	"github.com/longXboy/Lunnel/transport"
 	"github.com/longXboy/Lunnel/vhost"
@@ -27,7 +28,9 @@ func main() {
 	if err != nil {
 		rawLog.Fatalf("load config failed!err:=%v", err)
 	}
-	InitLog()
+	log.Init(serverConf.Prod, serverConf.LogFile)
+
+	raven.SetDSN("https://22946d46117c4bac9e680bf10597c564:e904ecd5c94e46c2aa9d15dcae90ac80@sentry.io/156456")
 	if serverConf.AuthEnable {
 		contrib.InitAuth(serverConf.AuthUrl)
 	}
@@ -152,7 +155,7 @@ func serve(lis net.Listener) {
 						log.WithFields(log.Fields{"err": err}).Warningln("accept stream failed!")
 						return
 					}
-					log.WithFields(log.Fields{"encrypt_mode": body.(*msg.ClientHello).EncryptMode}).Infoln("new client hello")
+					log.WithFields(log.Fields{"encrypt_mode": body.(*msg.ClientHello).EncryptMode}).Debugln("new client hello")
 					handleControl(stream, body.(*msg.ClientHello))
 					sess.Close()
 				} else if mType == msg.TypePipeClientHello {
@@ -173,7 +176,7 @@ func serveHttps(addr string) {
 	if err != nil {
 		log.WithFields(log.Fields{"addr": addr, "err": err}).Fatalln("listen https failed!")
 	}
-	log.WithFields(log.Fields{"addr": addr, "err": err}).Println("listen https")
+	log.WithFields(log.Fields{"addr": addr, "err": err}).Infoln("listen https")
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
@@ -213,7 +216,7 @@ func serveHttp(addr string) {
 	if err != nil {
 		log.WithFields(log.Fields{"addr": addr, "err": err}).Fatalln("listen http failed!")
 	}
-	log.WithFields(log.Fields{"addr": addr, "err": err}).Println("listen http")
+	log.WithFields(log.Fields{"addr": addr, "err": err}).Infoln("listen http")
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
@@ -291,7 +294,7 @@ func handleControl(conn net.Conn, cch *msg.ClientHello) {
 		log.WithFields(log.Fields{"err": err, "client_id": ctl.ClientID.Hex()}).Errorln("ctl.ServerHandShake failed!")
 		return
 	}
-	log.WithFields(log.Fields{"client_id": ctl.ClientID.Hex()}).Infoln("client handshake success!")
+	log.WithFields(log.Fields{"client_id": ctl.ClientID.Hex(), "encrypt_mode": ctl.encryptMode}).Infoln("client handshake success!")
 	ctl.Serve()
 }
 

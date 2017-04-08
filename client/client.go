@@ -72,7 +72,7 @@ func dialAndRun(transportMode string) {
 		log.WithFields(log.Fields{"server error": serverError.Error()}).Warnln("client hello failed!")
 		return
 	} else if mType == msg.TypeServerHello {
-		log.Infoln("recv msg serer hello success")
+		log.Debugln("recv msg serer hello success")
 	}
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.MaxReceiveBuffer = 4194304

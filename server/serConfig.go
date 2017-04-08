@@ -4,11 +4,9 @@ import (
 	"crypto/sha1"
 	"encoding/json"
 	"io/ioutil"
-	rawLog "log"
-	"os"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/longXboy/Lunnel/log"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/pbkdf2"
 	"gopkg.in/yaml.v2"
@@ -86,24 +84,4 @@ func LoadConfig(configFile string) error {
 		log.Warningln("server may not proxy http or https req correctly without configuring ServerDomain")
 	}
 	return nil
-}
-
-func InitLog() {
-	if serverConf.Prod {
-		log.SetLevel(log.WarnLevel)
-	} else {
-		log.SetLevel(log.DebugLevel)
-	}
-	if serverConf.LogFile != "" {
-		f, err := os.OpenFile(serverConf.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
-		if err != nil {
-			rawLog.Fatalf("open log file failed!err:=%v\n", err)
-			return
-		}
-		log.SetOutput(f)
-		log.SetFormatter(&log.JSONFormatter{})
-	} else {
-		log.SetOutput(os.Stdout)
-		log.SetFormatter(&log.TextFormatter{})
-	}
 }

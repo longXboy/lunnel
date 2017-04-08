@@ -23,14 +23,12 @@ func Listen(addr string, transportMode string) (net.Listener, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "listen kcp")
 		}
-		log.WithFields(log.Fields{"address": addr, "protocol": "udp"}).Infoln("server's control listen at")
 	} else {
 		lis, err = net.Listen("tcp", addr)
 		if err != nil {
 			log.WithFields(log.Fields{"address": addr, "protocol": "tcp", "err": err}).Fatalln("server's control listen failed!")
 			return nil, errors.Wrap(err, "listen tcp")
 		}
-		log.WithFields(log.Fields{"address": addr, "protocol": "tcp"}).Infoln("server's control listen at")
 	}
 	return lis, nil
 }

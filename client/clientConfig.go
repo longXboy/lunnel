@@ -129,7 +129,7 @@ func resovleServerName(addr string) (string, error) {
 
 func InitLog() {
 	if cliConf.Prod {
-		log.SetLevel(log.WarnLevel)
+		log.SetLevel(log.InfoLevel)
 	} else {
 		log.SetLevel(log.DebugLevel)
 	}

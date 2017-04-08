@@ -61,7 +61,7 @@ type Control struct {
 
 func (c *Control) Close() {
 	c.toDie <- struct{}{}
-	log.WithField("time", time.Now().UnixNano()).Infoln("control closing")
+	log.WithField("time", time.Now().UnixNano()).Debugln("control closing")
 	return
 }
 
@@ -81,7 +81,7 @@ func (c *Control) moderator() {
 }
 
 func (c *Control) createPipe() {
-	log.WithFields(log.Fields{"time": time.Now().Unix(), "pipe_count": atomic.LoadInt64(&c.totalPipes)}).Infoln("create pipe to server!")
+	log.WithFields(log.Fields{"time": time.Now().Unix(), "pipe_count": atomic.LoadInt64(&c.totalPipes)}).Debugln("create pipe to server!")
 	pipeConn, err := transport.CreateConn(cliConf.ServerAddr, c.transportMode, cliConf.HttpProxy)
 	if err != nil {
 		log.WithFields(log.Fields{"addr": cliConf.ServerAddr, "err": err}).Errorln("creating tunnel conn to server failed!")
@@ -193,7 +193,7 @@ func (c *Control) recvLoop() {
 			c.Close()
 			return
 		}
-		log.WithFields(log.Fields{"mType": mType}).Infoln("recv msg from server")
+		log.WithFields(log.Fields{"mType": mType}).Debugln("recv msg from server")
 		atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 		switch mType {
 		case msg.TypePong:

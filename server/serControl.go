@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/longXboy/Lunnel/contrib"
 	"github.com/longXboy/Lunnel/crypto"
+	"github.com/longXboy/Lunnel/log"
 	"github.com/longXboy/Lunnel/msg"
 	"github.com/longXboy/Lunnel/util"
 	"github.com/longXboy/smux"
@@ -291,7 +291,7 @@ func (c *Control) pipeManage() {
 
 func (c *Control) Close() {
 	c.toDie <- struct{}{}
-	log.WithField("time", time.Now().UnixNano()).Infoln("control closing")
+	log.WithField("time", time.Now().UnixNano()).Debugln("control closing")
 	return
 }
 
@@ -306,7 +306,7 @@ func (c *Control) IsClosed() bool {
 
 func (c *Control) moderator() {
 	_ = <-c.toDie
-	log.WithFields(log.Fields{"ClientId": c.ClientID.Hex()}).Infoln("client going to close")
+	log.WithFields(log.Fields{"ClientId": c.ClientID.Hex()}).Infoln("close client control")
 	close(c.die)
 	c.tunnelLock.Lock()
 	for _, t := range c.tunnels {

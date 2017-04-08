@@ -1,10 +1,26 @@
 {
-    "memo": "e3b077faba9b7c415c133cb53c7f40a7eb04a6db124c77dd35c00aea2faabd16",
+    "memo": "93709bb2b53bc341afe1f4ee5d6be08f3173309e50c988ba7376b98dfa6788f7",
     "projects": [
         {
             "name": "github.com/Sirupsen/logrus",
             "version": "v0.11.5",
             "revision": "ba1b36c82c5e05c4f912a88eab0dcd91a171688f",
+            "packages": [
+                "."
+            ]
+        },
+        {
+            "name": "github.com/certifi/gocertifi",
+            "version": "2017.01.23",
+            "revision": "03be5e6bb9874570ea7fb0961225d193cbc374c5",
+            "packages": [
+                "."
+            ]
+        },
+        {
+            "name": "github.com/getsentry/raven-go",
+            "branch": "master",
+            "revision": "b68337dbf03e7fbb53d9fd9b63fd09b28e8f13f7",
             "packages": [
                 "."
             ]
@@ -59,7 +75,7 @@
         {
             "name": "golang.org/x/crypto",
             "branch": "master",
-            "revision": "c2303dcbe84172e0c0da4c9f083eeca54c06f298",
+            "revision": "55a552f0823e0d3d54931488a2993ebd2fd0258c",
             "packages": [
                 "blowfish",
                 "cast5",
@@ -74,7 +90,7 @@
         {
             "name": "golang.org/x/net",
             "branch": "master",
-            "revision": "ffcf1bedda3b04ebb15a168a59800a73d6dc0f4d",
+            "revision": "d1e1b351919c6738fdeb9893d5c998b161464f0c",
             "packages": [
                 "bpf",
                 "internal/iana",
@@ -85,7 +101,7 @@
         {
             "name": "golang.org/x/sys",
             "branch": "master",
-            "revision": "39e3dc274464e7d2f663aa606a830611bae5f1db",
+            "revision": "f3918c30c5c2cb527c0b071a27c35120a6c0719a",
             "packages": [
                 "unix"
             ]
@@ -93,7 +109,7 @@
         {
             "name": "gopkg.in/yaml.v2",
             "branch": "v2",
-            "revision": "a3f3340b5840cee44f372bddb5880fcbc419b46a",
+            "revision": "cd8b52f8269e0feb286dfeef29f8fe4d5b397e0b",
             "packages": [
                 "."
             ]
