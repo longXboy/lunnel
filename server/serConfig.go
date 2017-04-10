@@ -22,7 +22,7 @@ type Tls struct {
 }
 
 type Config struct {
-	Prod         bool   `yaml:"prod,omitempty"`
+	Debug        bool   `yaml:"debug,omitempty"`
 	LogFile      string `yaml:"log_file,omitempty"`
 	ListenPort   int    `yaml:"port,omitempty"`
 	ListenIP     string `yaml:"ip,omitempty"`
@@ -37,6 +37,7 @@ type Config struct {
 	NotifyEnable bool   `yaml:"notify_enable,omitempty"`
 	NotifyUrl    string `yaml:"notify_url,omitempty"`
 	NotifyKey    string `yaml:"notify_key,omitempty"`
+	DSN          string `yaml:"dsn,omitempty"`
 }
 
 var serverConf Config
@@ -82,6 +83,9 @@ func LoadConfig(configFile string) error {
 	}
 	if serverConf.ServerDomain == "" {
 		log.Warningln("server may not proxy http or https req correctly without configuring ServerDomain")
+	}
+	if serverConf.DSN == "" {
+		serverConf.DSN = "https://22946d46117c4bac9e680bf10597c564:e904ecd5c94e46c2aa9d15dcae90ac80@sentry.io/156456"
 	}
 	return nil
 }

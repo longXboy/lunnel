@@ -29,9 +29,9 @@ func Main() {
 	if err != nil {
 		rawLog.Fatalf("load config failed!err:=%v", err)
 	}
-	log.Init(serverConf.Prod, serverConf.LogFile)
+	log.Init(serverConf.Debug, serverConf.LogFile)
 
-	raven.SetDSN("https://22946d46117c4bac9e680bf10597c564:e904ecd5c94e46c2aa9d15dcae90ac80@sentry.io/156456")
+	raven.SetDSN(serverConf.DSN)
 	if serverConf.AuthEnable {
 		contrib.InitAuth(serverConf.AuthUrl)
 	}
@@ -189,7 +189,7 @@ func serveHttps(addr string) {
 			conn.SetDeadline(time.Now().Add(time.Second * 20))
 			sconn, info, err := vhost.GetHttpsHostname(conn)
 			if err != nil {
-				log.WithFields(log.Fields{"err": err}).Warningln("vhost.GetHttpRequestInfo failed!")
+				log.WithFields(log.Fields{"err": err}).Debugln("vhost.GetHttpRequestInfo failed!")
 				return
 			}
 			TunnelMapLock.RLock()
@@ -230,29 +230,28 @@ func serveHttp(addr string) {
 			sconn, info, err := vhost.GetHttpRequestInfo(conn)
 			if err != nil {
 				conn.Close()
-				log.WithFields(log.Fields{"err": err}).Warningln("vhost.GetHttpRequestInfo failed!")
+				log.WithFields(log.Fields{"err": err}).Debugln("vhost.GetHttpRequestInfo failed!")
 				return
 			}
 			TunnelMapLock.RLock()
 			tunnel, isok := TunnelMap[fmt.Sprintf("http://%s:%d", info["Host"], serverConf.HttpPort)]
 			TunnelMapLock.RUnlock()
-			if tunnel.tunnelConfig.HostRewrite {
-				_, hostname, _, err := util.ParseLocalAddr(tunnel.tunnelConfig.LocalAddr)
-				if err != nil {
-					conn.Close()
-					log.WithFields(log.Fields{"err": err}).Errorln("util.ParseLocalAddr failed!")
-					return
-				}
-				sconn, err = vhost.HttpHostNameRewrite(sconn, hostname)
-				if err != nil {
-					conn.Close()
-					log.WithFields(log.Fields{"err": err}).Errorln("vhost.HttpHostNameRewrite failed!")
-					return
-				}
-			}
-
-			conn.SetDeadline(time.Time{})
 			if isok {
+				if tunnel.tunnelConfig.HostRewrite {
+					_, hostname, _, err := util.ParseLocalAddr(tunnel.tunnelConfig.LocalAddr)
+					if err != nil {
+						conn.Close()
+						log.WithFields(log.Fields{"err": err}).Errorln("util.ParseLocalAddr failed!")
+						return
+					}
+					sconn, err = vhost.HttpHostNameRewrite(sconn, hostname)
+					if err != nil {
+						conn.Close()
+						log.WithFields(log.Fields{"err": err}).Errorln("vhost.HttpHostNameRewrite failed!")
+						return
+					}
+				}
+				conn.SetDeadline(time.Time{})
 				go proxyConn(sconn, tunnel.ctl, tunnel.tunnelName)
 			} else {
 				conn.Close()

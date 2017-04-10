@@ -1,15 +1,17 @@
-server_addr: "127.0.0.1:8080"
+server_addr: 127.0.0.1:8080
 tunnels: 
   2048: 
-    proto: "http"
-    local: "http://127.0.0.1:32768"
+    proto: http
+    local: http://127.0.0.1:32768
     http_rewrite: true
   2048_2: 
-    proto: "tcp"
-    local: "http://127.0.0.1:32768" 
+    proto: tcp
+    local: http://127.0.0.1:32768
   docker: 
-    proto: "http"
-    local: "unix:///var/run/docker.sock"
+    subdomain: docker
+    hostname: example.com
+    proto: http
+    local: unix:///var/run/docker.sock
 tls: 
-  trusted_cert: "./cacert-example.pem"
-  server_name: "example.com"
+  trusted_cert: ./cacert-example.pem
+  server_name: example.com

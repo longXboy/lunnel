@@ -25,7 +25,7 @@ type Tls struct {
 }
 
 type Config struct {
-	Prod    bool   `yaml:"prod,omitempty"`
+	Debug   bool   `yaml:"debug,omitempty"`
 	LogFile string `yaml:"log_file,omitempty"`
 	//if EncryptMode is tls and ServerName is empty,ServerAddr can't be IP format
 	ServerAddr  string `yaml:"server_addr"`
@@ -42,6 +42,7 @@ type Config struct {
 	//tcp: communicate with server in tcp
 	Transport string `yaml:"transport,omitempty"`
 	HttpProxy string `yaml:"http_proxy,omitempty"`
+	DSN       string `yaml:"dsn,omitempty"`
 }
 
 var cliConf Config
@@ -111,6 +112,9 @@ func LoadConfig(configFile string) error {
 		} else if os.Getenv("HTTP_PROXY") != "" {
 			cliConf.HttpProxy = os.Getenv("HTTP_PROXY")
 		}
+	}
+	if cliConf.DSN == "" {
+		cliConf.DSN = "https://22946d46117c4bac9e680bf10597c564:e904ecd5c94e46c2aa9d15dcae90ac80@sentry.io/156456"
 	}
 	return nil
 }

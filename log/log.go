@@ -10,11 +10,11 @@ import (
 	"github.com/getsentry/raven-go"
 )
 
-func Init(isProd bool, logFile string) {
-	if isProd {
-		logrus.SetLevel(logrus.InfoLevel)
-	} else {
+func Init(isDebug bool, logFile string) {
+	if isDebug {
 		logrus.SetLevel(logrus.DebugLevel)
+	} else {
+		logrus.SetLevel(logrus.InfoLevel)
 	}
 	if logFile != "" {
 		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)

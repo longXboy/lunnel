@@ -11,6 +11,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/getsentry/raven-go"
 	"github.com/klauspost/compress/snappy"
 	"github.com/longXboy/Lunnel/crypto"
 	"github.com/longXboy/Lunnel/log"
@@ -131,7 +132,9 @@ func Main() {
 	if err != nil {
 		rawLog.Fatalf("load config failed!err:=%v", err)
 	}
-	log.Init(cliConf.Prod, cliConf.LogFile)
+	log.Init(cliConf.Debug, cliConf.LogFile)
+
+	raven.SetDSN(cliConf.DSN)
 
 	var transportMode string
 	var transportRetry int
