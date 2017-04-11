@@ -6,13 +6,12 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	rawLog "log"
-	"net"
 	"time"
 
 	"github.com/getsentry/raven-go"
-	"github.com/klauspost/compress/snappy"
 	"github.com/longXboy/Lunnel/crypto"
 	"github.com/longXboy/Lunnel/log"
 	"github.com/longXboy/Lunnel/msg"
@@ -56,8 +55,7 @@ func dialAndRun(transportMode string) {
 		return
 	}
 	defer conn.Close()
-	var chello msg.ClientHello
-	chello.EncryptMode = cliConf.EncryptMode
+	chello := msg.ClientHello{EncryptMode: cliConf.EncryptMode, EnableCompress: cliConf.EnableCompress}
 	err = msg.WriteMsg(conn, msg.TypeClientHello, chello)
 	if err != nil {
 		log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("write ControlClientHello failed!")
@@ -75,10 +73,35 @@ func dialAndRun(transportMode string) {
 	} else if mType == msg.TypeServerHello {
 		log.Debugln("recv msg serer hello success")
 	}
+	var underlyingConn io.ReadWriteCloser
+	if cliConf.EncryptMode == "tls" {
+		tlsConfig, err := LoadTLSConfig([]string{cliConf.Tls.TrustedCert})
+		if err != nil {
+			log.WithFields(log.Fields{"trusted cert": cliConf.Tls.TrustedCert, "err": err}).Fatalln("load tls trusted cert failed!")
+			return
+		}
+		tlsConfig.ServerName = cliConf.Tls.ServerName
+		underlyingConn = tls.Client(conn, tlsConfig)
+	} else if cliConf.EncryptMode == "aes" {
+		underlyingConn, err = crypto.NewCryptoStream(conn, []byte(cliConf.Aes.SecretKey))
+		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Errorln("client hello,crypto.NewCryptoConn failed!")
+			return
+		}
+	} else if cliConf.EncryptMode == "none" {
+		underlyingConn = conn
+	} else {
+		log.WithFields(log.Fields{"encrypt_mode": cliConf.EncryptMode, "err": "invalid EncryptMode"}).Errorln("client hello failed!")
+		return
+	}
+	if cliConf.EnableCompress {
+		underlyingConn = transport.NewCompStream(underlyingConn)
+	}
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.MaxReceiveBuffer = 4194304
-	sess, err := smux.Client(conn, smuxConfig)
+	sess, err := smux.Client(underlyingConn, smuxConfig)
 	if err != nil {
+		underlyingConn.Close()
 		log.WithFields(log.Fields{"err": err}).Warnln("upgrade to smux.Client failed!")
 		return
 	}
@@ -88,29 +111,7 @@ func dialAndRun(transportMode string) {
 		log.WithFields(log.Fields{"err": err}).Warnln("sess.OpenStream failed!")
 		return
 	}
-	var ctl *Control
-	if cliConf.EncryptMode == "tls" {
-		tlsConfig, err := LoadTLSConfig([]string{cliConf.Tls.TrustedCert})
-		if err != nil {
-			log.WithFields(log.Fields{"trusted cert": cliConf.Tls.TrustedCert, "err": err}).Fatalln("load tls trusted cert failed!")
-			return
-		}
-		tlsConfig.ServerName = cliConf.Tls.ServerName
-		tlsConn := tls.Client(stream, tlsConfig)
-		ctl = NewControl(tlsConn, cliConf.EncryptMode, transportMode)
-	} else if cliConf.EncryptMode == "aes" {
-		cryptoConn, err := crypto.NewCryptoConn(stream, []byte(cliConf.Aes.SecretKey))
-		if err != nil {
-			log.WithFields(log.Fields{"err": err}).Errorln("client hello,crypto.NewCryptoConn failed!")
-			return
-		}
-		ctl = NewControl(cryptoConn, cliConf.EncryptMode, transportMode)
-	} else if cliConf.EncryptMode == "none" {
-		ctl = NewControl(stream, cliConf.EncryptMode, transportMode)
-	} else {
-		log.WithFields(log.Fields{"encrypt_mode": cliConf.EncryptMode, "err": "invalid EncryptMode"}).Errorln("client hello failed!")
-		return
-	}
+	ctl := NewControl(stream, cliConf.EncryptMode, transportMode)
 	err = ctl.ClientHandShake()
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientHandShake failed!")
@@ -162,31 +163,4 @@ func Main() {
 			transportRetry = 0
 		}
 	}
-}
-
-type compStream struct {
-	conn net.Conn
-	w    *snappy.Writer
-	r    *snappy.Reader
-}
-
-func newCompStream(conn net.Conn) *compStream {
-	c := new(compStream)
-	c.conn = conn
-	c.w = snappy.NewBufferedWriter(conn)
-	c.r = snappy.NewReader(conn)
-	return c
-}
-func (c *compStream) Read(p []byte) (n int, err error) {
-	return c.r.Read(p)
-}
-
-func (c *compStream) Write(p []byte) (n int, err error) {
-	n, err = c.w.Write(p)
-	err = c.w.Flush()
-	return n, err
-}
-
-func (c *compStream) Close() error {
-	return c.conn.Close()
 }

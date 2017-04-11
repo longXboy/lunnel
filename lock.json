@@ -75,7 +75,7 @@
         {
             "name": "golang.org/x/crypto",
             "branch": "master",
-            "revision": "55a552f0823e0d3d54931488a2993ebd2fd0258c",
+            "revision": "9ef620b9ca2f82b55030ffd4f41327fa9e77a92c",
             "packages": [
                 "blowfish",
                 "cast5",

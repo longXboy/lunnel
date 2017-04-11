@@ -5,3 +5,4 @@ aes:
 tls:
   cert: ./example.crt
   key: ./example.key
+debug: true

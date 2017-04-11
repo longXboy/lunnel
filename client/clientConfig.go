@@ -40,9 +40,10 @@ type Config struct {
 	//mix: switch between kcp and tcp automatically,which is default
 	//kcp: communicate with server in kcp
 	//tcp: communicate with server in tcp
-	Transport string `yaml:"transport,omitempty"`
-	HttpProxy string `yaml:"http_proxy,omitempty"`
-	DSN       string `yaml:"dsn,omitempty"`
+	Transport      string `yaml:"transport,omitempty"`
+	HttpProxy      string `yaml:"http_proxy,omitempty"`
+	DSN            string `yaml:"dsn,omitempty"`
+	EnableCompress bool   `yaml:"enable_compress,omitempty"`
 }
 
 var cliConf Config

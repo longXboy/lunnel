@@ -12,17 +12,18 @@ import (
 	"github.com/longXboy/Lunnel/crypto"
 	"github.com/longXboy/Lunnel/log"
 	"github.com/longXboy/Lunnel/msg"
+	"github.com/longXboy/Lunnel/transport"
 	"github.com/longXboy/Lunnel/util"
 	"github.com/longXboy/smux"
 	"github.com/pkg/errors"
 )
 
-var maxIdlePipes int = 3
+var maxIdlePipes int = 2
 var maxStreams int = 6
 
 var pingInterval time.Duration = time.Second * 30
-var pingTimeout time.Duration = time.Second * 70
-var cleanInterval time.Duration = time.Second * 5
+var pingTimeout time.Duration = time.Second * 80
+var cleanInterval time.Duration = time.Second * 60
 
 var ControlMapLock sync.RWMutex
 var ControlMap = make(map[crypto.UUID]*Control)
@@ -32,16 +33,17 @@ var subDomainIdx uint64
 var TunnelMapLock sync.RWMutex
 var TunnelMap = make(map[string]*Tunnel)
 
-func NewControl(conn net.Conn, encryptMode string) *Control {
+func NewControl(conn net.Conn, encryptMode string, enableCompress bool) *Control {
 	ctl := &Control{
-		ctlConn:     conn,
-		pipeGet:     make(chan *smux.Session),
-		pipeAdd:     make(chan *smux.Session),
-		die:         make(chan struct{}),
-		toDie:       make(chan struct{}),
-		writeChan:   make(chan writeReq, 128),
-		encryptMode: encryptMode,
-		tunnels:     make(map[string]*Tunnel, 0),
+		ctlConn:        conn,
+		pipeGet:        make(chan *smux.Session),
+		pipeAdd:        make(chan *smux.Session),
+		die:            make(chan struct{}),
+		toDie:          make(chan struct{}),
+		writeChan:      make(chan writeReq, 128),
+		encryptMode:    encryptMode,
+		tunnels:        make(map[string]*Tunnel, 0),
+		enableCompress: enableCompress,
 	}
 	return ctl
 }
@@ -86,6 +88,7 @@ type Control struct {
 	preMasterSecret []byte
 	lastRead        uint64
 	encryptMode     string
+	enableCompress  bool
 
 	busyPipes  *pipeNode
 	idleCount  int
@@ -590,24 +593,24 @@ func PipeHandShake(conn net.Conn, phs *msg.PipeClientHello) error {
 	smuxConfig.MaxReceiveBuffer = 4194304
 	var err error
 	var sess *smux.Session
+	var underlyingConn io.ReadWriteCloser
 	if ctl.encryptMode != "none" {
 		prf := crypto.NewPrf12()
 		var masterKey []byte = make([]byte, 16)
 		prf(masterKey, ctl.preMasterSecret, phs.ClientID[:], phs.Once[:])
-		cryptoConn, err := crypto.NewCryptoConn(conn, masterKey)
+		underlyingConn, err = crypto.NewCryptoStream(conn, masterKey)
 		if err != nil {
 			return errors.Wrap(err, "crypto.NewCryptoConn")
 		}
-		//server endpoint is the pipe connection source,so we use smux.Client
-		sess, err = smux.Client(cryptoConn, smuxConfig)
-		if err != nil {
-			return errors.Wrap(err, "smux.Client")
-		}
 	} else {
-		sess, err = smux.Client(conn, smuxConfig)
-		if err != nil {
-			return errors.Wrap(err, "smux.Client")
-		}
+		underlyingConn = conn
+	}
+	if ctl.enableCompress {
+		underlyingConn = transport.NewCompStream(underlyingConn)
+	}
+	sess, err = smux.Client(underlyingConn, smuxConfig)
+	if err != nil {
+		return errors.Wrap(err, "smux.Client")
 	}
 	ctl.putPipe(sess)
 	atomic.AddInt64(&ctl.totalPipes, 1)

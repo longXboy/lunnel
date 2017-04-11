@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	rawLog "log"
 	"net"
@@ -114,63 +115,116 @@ func listenAndServe(transportMode string) {
 	serve(lis)
 }
 
+func handleConn(conn net.Conn) {
+	mType, body, err := msg.ReadMsg(conn)
+	if err != nil {
+		conn.Close()
+		log.WithFields(log.Fields{"err": err}).Warningln("read handshake msg failed!")
+		return
+	}
+	if mType == msg.TypeClientHello {
+		clientHello := body.(*msg.ClientHello)
+		if clientHello.EncryptMode == "tls" && (serverConf.Tls.TlsCert == "" || serverConf.Tls.TlsKey == "") {
+			err = msg.WriteMsg(conn, msg.TypeError, msg.Error{Msg: "server not support tls mode"})
+			if err != nil {
+				conn.Close()
+				return
+			}
+		} else if clientHello.EncryptMode == "aes" && serverConf.Aes.SecretKey == "" {
+			err = msg.WriteMsg(conn, msg.TypeError, msg.Error{Msg: "server not support aes mode"})
+			if err != nil {
+				conn.Close()
+				return
+			}
+		} else {
+			err = msg.WriteMsg(conn, msg.TypeServerHello, nil)
+			if err != nil {
+				conn.Close()
+				return
+			}
+		}
+		var underlyingConn io.ReadWriteCloser
+		var err error
+		if clientHello.EncryptMode == "tls" {
+			tlsConfig, err := newTlsConfig()
+			if err != nil {
+				conn.Close()
+				return
+			}
+			underlyingConn = tls.Server(conn, tlsConfig)
+		} else if clientHello.EncryptMode == "aes" {
+			underlyingConn, err = crypto.NewCryptoStream(conn, []byte(serverConf.Aes.SecretKey))
+			if err != nil {
+				conn.Close()
+				log.WithFields(log.Fields{"err": err}).Errorln("client hello,crypto.NewCryptoConn failed!")
+				return
+			}
+		} else if clientHello.EncryptMode == "none" {
+			underlyingConn = conn
+		} else {
+			msg.WriteMsg(conn, msg.TypeError, msg.Error{Msg: "invalid encryption mode"})
+			conn.Close()
+			log.WithFields(log.Fields{"encrypt_mode": clientHello.EncryptMode, "err": "invalid EncryptMode"}).Errorln("client hello failed!")
+			return
+		}
+		if clientHello.EnableCompress {
+			underlyingConn = transport.NewCompStream(underlyingConn)
+		}
+		smuxConfig := smux.DefaultConfig()
+		smuxConfig.MaxReceiveBuffer = 419430
+		sess, err := smux.Server(underlyingConn, smuxConfig)
+		if err != nil {
+			underlyingConn.Close()
+			log.WithFields(log.Fields{"err": err}).Warningln("upgrade to smux.Server failed!")
+			return
+		}
+		defer sess.Close()
+		stream, err := sess.AcceptStream()
+		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Warningln("accept stream failed!")
+			return
+		}
+		log.WithFields(log.Fields{"encrypt_mode": body.(*msg.ClientHello).EncryptMode}).Debugln("new client hello")
+		handleControl(stream, clientHello)
+	} else if mType == msg.TypePipeClientHello {
+		handlePipe(conn, body.(*msg.PipeClientHello))
+	} else {
+		log.WithFields(log.Fields{"msgType": mType, "body": body}).Errorln("read handshake msg invalid type!")
+	}
+}
+
 func serve(lis net.Listener) {
 	for {
 		if conn, err := lis.Accept(); err == nil {
-			go func() {
-
-				mType, body, err := msg.ReadMsg(conn)
-				if err != nil {
-					conn.Close()
-					log.WithFields(log.Fields{"err": err}).Warningln("read handshake msg failed!")
-					return
-				}
-				if mType == msg.TypeClientHello {
-					if body.(*msg.ClientHello).EncryptMode == "tls" && (serverConf.Tls.TlsCert == "" || serverConf.Tls.TlsKey == "") {
-						err = msg.WriteMsg(conn, msg.TypeError, msg.Error{Msg: "server not support tls mode"})
-						if err != nil {
-							return
-						}
-					} else if body.(*msg.ClientHello).EncryptMode == "aes" && serverConf.Aes.SecretKey == "" {
-						err = msg.WriteMsg(conn, msg.TypeError, msg.Error{Msg: "server not support aes mode"})
-						if err != nil {
-							return
-						}
-					} else {
-						err = msg.WriteMsg(conn, msg.TypeServerHello, nil)
-						if err != nil {
-							return
-						}
-					}
-
-					smuxConfig := smux.DefaultConfig()
-					smuxConfig.MaxReceiveBuffer = 419430
-					sess, err := smux.Server(conn, smuxConfig)
-					if err != nil {
-						conn.Close()
-						log.WithFields(log.Fields{"err": err}).Warningln("upgrade to smux.Server failed!")
-						return
-					}
-					stream, err := sess.AcceptStream()
-					if err != nil {
-						sess.Close()
-						log.WithFields(log.Fields{"err": err}).Warningln("accept stream failed!")
-						return
-					}
-					log.WithFields(log.Fields{"encrypt_mode": body.(*msg.ClientHello).EncryptMode}).Debugln("new client hello")
-					handleControl(stream, body.(*msg.ClientHello))
-					sess.Close()
-				} else if mType == msg.TypePipeClientHello {
-					handlePipe(conn, body.(*msg.PipeClientHello))
-				} else {
-					log.WithFields(log.Fields{"msgType": mType, "body": body}).Errorln("read handshake msg invalid type!")
-				}
-			}()
+			go handleConn(conn)
 		} else {
 			log.WithFields(log.Fields{"err": err}).Errorln("lis.Accept failed!")
 		}
 	}
 
+}
+
+func handleHttpsConn(conn net.Conn) {
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(time.Second * 20))
+	sconn, info, err := vhost.GetHttpsHostname(conn)
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).Debugln("vhost.GetHttpRequestInfo failed!")
+		return
+	}
+	TunnelMapLock.RLock()
+	tunnel, isok := TunnelMap[fmt.Sprintf("https://%s:%d", info["Host"], serverConf.HttpsPort)]
+	TunnelMapLock.RUnlock()
+	if isok {
+		tlsConfig, err := newTlsConfig()
+		if err != nil {
+			log.Errorln("server error cert")
+			return
+		}
+		tlsConn := tls.Server(sconn, tlsConfig)
+		conn.SetDeadline(time.Time{})
+		proxyConn(tlsConn, tunnel.ctl, tunnel.tunnelName)
+	}
 }
 
 func serveHttps(addr string) {
@@ -185,31 +239,36 @@ func serveHttps(addr string) {
 			log.WithFields(log.Fields{"err": err}).Errorln("accept http conn failed!")
 			continue
 		}
-		go func() {
-			conn.SetDeadline(time.Now().Add(time.Second * 20))
-			sconn, info, err := vhost.GetHttpsHostname(conn)
+		go handleHttpsConn(conn)
+	}
+}
+
+func handleHttpConn(conn net.Conn) {
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(time.Second * 20))
+	sconn, info, err := vhost.GetHttpRequestInfo(conn)
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).Debugln("vhost.GetHttpRequestInfo failed!")
+		return
+	}
+	TunnelMapLock.RLock()
+	tunnel, isok := TunnelMap[fmt.Sprintf("http://%s:%d", info["Host"], serverConf.HttpPort)]
+	TunnelMapLock.RUnlock()
+	if isok {
+		if tunnel.tunnelConfig.HostRewrite {
+			_, hostname, _, err := util.ParseLocalAddr(tunnel.tunnelConfig.LocalAddr)
 			if err != nil {
-				log.WithFields(log.Fields{"err": err}).Debugln("vhost.GetHttpRequestInfo failed!")
+				log.WithFields(log.Fields{"err": err}).Errorln("util.ParseLocalAddr failed!")
 				return
 			}
-			TunnelMapLock.RLock()
-			tunnel, isok := TunnelMap[fmt.Sprintf("https://%s:%d", info["Host"], serverConf.HttpsPort)]
-			TunnelMapLock.RUnlock()
-			if isok {
-				tlsConfig, err := newTlsConfig()
-				if err != nil {
-					log.Errorln("server error cert")
-					conn.Close()
-					return
-				}
-				tlsConn := tls.Server(sconn, tlsConfig)
-				conn.SetDeadline(time.Time{})
-				go proxyConn(tlsConn, tunnel.ctl, tunnel.tunnelName)
-			} else {
-				conn.Close()
+			sconn, err = vhost.HttpHostNameRewrite(sconn, hostname)
+			if err != nil {
+				log.WithFields(log.Fields{"err": err}).Errorln("vhost.HttpHostNameRewrite failed!")
 				return
 			}
-		}()
+		}
+		conn.SetDeadline(time.Time{})
+		proxyConn(sconn, tunnel.ctl, tunnel.tunnelName)
 	}
 }
 
@@ -225,39 +284,7 @@ func serveHttp(addr string) {
 			log.WithFields(log.Fields{"err": err}).Errorln("accept http conn failed!")
 			continue
 		}
-		go func() {
-			conn.SetDeadline(time.Now().Add(time.Second * 20))
-			sconn, info, err := vhost.GetHttpRequestInfo(conn)
-			if err != nil {
-				conn.Close()
-				log.WithFields(log.Fields{"err": err}).Debugln("vhost.GetHttpRequestInfo failed!")
-				return
-			}
-			TunnelMapLock.RLock()
-			tunnel, isok := TunnelMap[fmt.Sprintf("http://%s:%d", info["Host"], serverConf.HttpPort)]
-			TunnelMapLock.RUnlock()
-			if isok {
-				if tunnel.tunnelConfig.HostRewrite {
-					_, hostname, _, err := util.ParseLocalAddr(tunnel.tunnelConfig.LocalAddr)
-					if err != nil {
-						conn.Close()
-						log.WithFields(log.Fields{"err": err}).Errorln("util.ParseLocalAddr failed!")
-						return
-					}
-					sconn, err = vhost.HttpHostNameRewrite(sconn, hostname)
-					if err != nil {
-						conn.Close()
-						log.WithFields(log.Fields{"err": err}).Errorln("vhost.HttpHostNameRewrite failed!")
-						return
-					}
-				}
-				conn.SetDeadline(time.Time{})
-				go proxyConn(sconn, tunnel.ctl, tunnel.tunnelName)
-			} else {
-				conn.Close()
-				return
-			}
-		}()
+		go handleHttpConn(conn)
 	}
 }
 
@@ -274,43 +301,14 @@ func newTlsConfig() (*tls.Config, error) {
 }
 
 func handleControl(conn net.Conn, cch *msg.ClientHello) {
-	var err error
-	var ctl *Control
-	if cch.EncryptMode == "tls" {
-		tlsConfig, err := newTlsConfig()
-		if err != nil {
-			conn.Close()
-			return
-		}
-		tlsConn := tls.Server(conn, tlsConfig)
-		ctl = NewControl(tlsConn, cch.EncryptMode)
-	} else if cch.EncryptMode == "aes" {
-		cryptoConn, err := crypto.NewCryptoConn(conn, []byte(serverConf.Aes.SecretKey))
-		if err != nil {
-			conn.Close()
-			log.WithFields(log.Fields{"err": err}).Errorln("client hello,crypto.NewCryptoConn failed!")
-			return
-		}
-		ctl = NewControl(cryptoConn, cch.EncryptMode)
-	} else if cch.EncryptMode == "none" {
-		ctl = NewControl(conn, cch.EncryptMode)
-	} else {
-		err = msg.WriteMsg(conn, msg.TypeError, msg.Error{Msg: "invalid encryption mode"})
-		if err != nil {
-			return
-		}
-		conn.Close()
-		log.WithFields(log.Fields{"encrypt_mode": cch.EncryptMode, "err": "invalid EncryptMode"}).Errorln("client hello failed!")
-		return
-	}
-
-	err = ctl.ServerHandShake()
+	ctl := NewControl(conn, cch.EncryptMode, cch.EnableCompress)
+	err := ctl.ServerHandShake()
 	if err != nil {
 		conn.Close()
 		log.WithFields(log.Fields{"err": err, "client_id": ctl.ClientID.Hex()}).Errorln("ctl.ServerHandShake failed!")
 		return
 	}
-	log.WithFields(log.Fields{"client_id": ctl.ClientID.Hex(), "encrypt_mode": ctl.encryptMode}).Infoln("client handshake success!")
+	log.WithFields(log.Fields{"client_id": ctl.ClientID.Hex(), "encrypt_mode": ctl.encryptMode, "enableCompress": ctl.enableCompress}).Infoln("client handshake success!")
 	ctl.Serve()
 }
 

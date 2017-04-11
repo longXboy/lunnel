@@ -34,7 +34,8 @@ func (e *Error) Error() string {
 }
 
 type ClientHello struct {
-	EncryptMode string
+	EncryptMode    string
+	EnableCompress bool
 }
 
 type ControlClientHello struct {
@@ -99,7 +100,7 @@ func WriteMsg(w net.Conn, mType MsgType, in interface{}) error {
 	if body != nil {
 		copy(x[4:], body)
 	}
-	w.SetWriteDeadline(time.Now().Add(time.Second * 10))
+	w.SetWriteDeadline(time.Now().Add(time.Second * 15))
 	_, err = w.Write(x)
 	if err != nil {
 		return errors.Wrap(err, "write msg")

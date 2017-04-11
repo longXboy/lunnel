@@ -22,7 +22,7 @@ import (
 )
 
 var pingInterval time.Duration = time.Second * 30
-var pingTimeout time.Duration = time.Second * 70
+var pingTimeout time.Duration = time.Second * 80
 
 func NewControl(conn net.Conn, encryptMode string, transport string) *Control {
 	ctl := &Control{
@@ -91,7 +91,6 @@ func (c *Control) createPipe() {
 
 	pipe, err := c.pipeHandShake(pipeConn)
 	if err != nil {
-		pipeConn.Close()
 		log.WithFields(log.Fields{"err": err}).Errorln("pipeHandShake failed!")
 		return
 	}
@@ -348,25 +347,24 @@ func (c *Control) pipeHandShake(conn net.Conn) (*smux.Session, error) {
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.MaxReceiveBuffer = 4194304
 	var mux *smux.Session
+	var underlyingConn io.ReadWriteCloser
 	if c.encryptMode != "none" {
 		prf := crypto.NewPrf12()
 		var masterKey []byte = make([]byte, 16)
 		prf(masterKey, c.preMasterSecret, c.ClientID[:], phs.Once[:])
-		cryptoConn, err := crypto.NewCryptoConn(conn, masterKey)
+		underlyingConn, err = crypto.NewCryptoStream(conn, masterKey)
 		if err != nil {
 			return nil, errors.Wrap(err, "crypto.NewCryptoConn")
 		}
-
-		mux, err = smux.Server(cryptoConn, smuxConfig)
-		if err != nil {
-			return nil, errors.Wrap(err, "smux.Server")
-		}
 	} else {
-		mux, err = smux.Server(conn, smuxConfig)
-		if err != nil {
-			return nil, errors.Wrap(err, "smux.Server")
-		}
+		underlyingConn = conn
 	}
-
+	if cliConf.EnableCompress {
+		underlyingConn = transport.NewCompStream(underlyingConn)
+	}
+	mux, err = smux.Server(underlyingConn, smuxConfig)
+	if err != nil {
+		return nil, errors.Wrap(err, "smux.Server")
+	}
 	return mux, nil
 }

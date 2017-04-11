@@ -15,3 +15,5 @@ tunnels:
 tls: 
   trusted_cert: ./cacert-example.pem
   server_name: example.com
+enable_compress: true
+debug: true

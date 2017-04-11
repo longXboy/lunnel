@@ -9,9 +9,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/longXboy/Lunnel/transport/kcp"
-
 	"github.com/longXboy/Lunnel/log"
+	"github.com/longXboy/Lunnel/transport/kcp"
 	"github.com/pkg/errors"
 )
 
