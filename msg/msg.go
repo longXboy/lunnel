@@ -54,26 +54,35 @@ type PipeClientHello struct {
 	ClientID crypto.UUID
 }
 
-type TunnelConfig struct {
-	Protocol    string `yaml:"proto"`
-	LocalAddr   string `yaml:"local"`
-	Subdomain   string `yaml:"subdomain,omitempty"`
-	Hostname    string `yaml:"hostname,omitempty"`
-	RemotePort  uint16 `yaml:"remote_port,omitempty"`
-	HostRewrite bool   `yaml:"host_rewrite,omitempty"`
+type Public struct {
+	Schema          string
+	Host            string
+	Port            uint16
+	AllowReallocate bool
 }
 
-func (tc TunnelConfig) RemoteAddr() string {
-	if tc.Subdomain != "" {
-		return fmt.Sprintf("%s://%s.%s:%d", tc.Protocol, tc.Subdomain, tc.Hostname, tc.RemotePort)
-	} else {
-		return fmt.Sprintf("%s://%s:%d", tc.Protocol, tc.Hostname, tc.RemotePort)
-	}
+type Local struct {
+	Schema string
+	Host   string
+	Port   uint16
+}
 
+type Tunnel struct {
+	Public          Public
+	Local           Local
+	HttpHostRewrite string
+}
+
+func (tc Tunnel) PublicAddr() string {
+	return fmt.Sprintf("%s://%s:%d", tc.Public.Schema, tc.Public.Host, tc.Public.Port)
+}
+
+func (tc Tunnel) LocalAddr() string {
+	return fmt.Sprintf("%s://%s:%d", tc.Local.Schema, tc.Local.Host, tc.Local.Port)
 }
 
 type AddTunnels struct {
-	Tunnels map[string]TunnelConfig
+	Tunnels map[string]Tunnel
 }
 
 func WriteMsg(w net.Conn, mType MsgType, in interface{}) error {

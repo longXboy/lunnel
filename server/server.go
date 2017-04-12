@@ -18,7 +18,6 @@ import (
 	"github.com/longXboy/Lunnel/log"
 	"github.com/longXboy/Lunnel/msg"
 	"github.com/longXboy/Lunnel/transport"
-	"github.com/longXboy/Lunnel/util"
 	"github.com/longXboy/Lunnel/vhost"
 	"github.com/longXboy/smux"
 )
@@ -83,12 +82,12 @@ func tunnelQuery(w http.ResponseWriter, r *http.Request) {
 		tunnel, isok := TunnelMap[query.RemoteAddr]
 		TunnelMapLock.RUnlock()
 		if isok {
-			tunnelStats.Tunnels = append(tunnelStats.Tunnels, tunnel.tunnelConfig.RemoteAddr())
+			tunnelStats.Tunnels = append(tunnelStats.Tunnels, tunnel.tunnelConfig.PublicAddr())
 		}
 	} else {
 		TunnelMapLock.RLock()
 		for _, v := range TunnelMap {
-			tunnelStats.Tunnels = append(tunnelStats.Tunnels, v.tunnelConfig.RemoteAddr())
+			tunnelStats.Tunnels = append(tunnelStats.Tunnels, v.tunnelConfig.PublicAddr())
 		}
 		TunnelMapLock.RUnlock()
 	}
@@ -223,7 +222,7 @@ func handleHttpsConn(conn net.Conn) {
 		}
 		tlsConn := tls.Server(sconn, tlsConfig)
 		conn.SetDeadline(time.Time{})
-		proxyConn(tlsConn, tunnel.ctl, tunnel.tunnelName)
+		proxyConn(tlsConn, tunnel.ctl, tunnel.name)
 	}
 }
 
@@ -255,20 +254,15 @@ func handleHttpConn(conn net.Conn) {
 	tunnel, isok := TunnelMap[fmt.Sprintf("http://%s:%d", info["Host"], serverConf.HttpPort)]
 	TunnelMapLock.RUnlock()
 	if isok {
-		if tunnel.tunnelConfig.HostRewrite {
-			_, hostname, _, err := util.ParseLocalAddr(tunnel.tunnelConfig.LocalAddr)
-			if err != nil {
-				log.WithFields(log.Fields{"err": err}).Errorln("util.ParseLocalAddr failed!")
-				return
-			}
-			sconn, err = vhost.HttpHostNameRewrite(sconn, hostname)
+		if tunnel.tunnelConfig.HttpHostRewrite != "" {
+			sconn, err = vhost.HttpHostNameRewrite(sconn, tunnel.tunnelConfig.HttpHostRewrite)
 			if err != nil {
 				log.WithFields(log.Fields{"err": err}).Errorln("vhost.HttpHostNameRewrite failed!")
 				return
 			}
 		}
 		conn.SetDeadline(time.Time{})
-		proxyConn(sconn, tunnel.ctl, tunnel.tunnelName)
+		proxyConn(sconn, tunnel.ctl, tunnel.name)
 	}
 }
 

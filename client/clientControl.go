@@ -16,7 +16,6 @@ import (
 	"github.com/longXboy/Lunnel/log"
 	"github.com/longXboy/Lunnel/msg"
 	"github.com/longXboy/Lunnel/transport"
-	"github.com/longXboy/Lunnel/util"
 	"github.com/longXboy/smux"
 	"github.com/pkg/errors"
 )
@@ -24,14 +23,14 @@ import (
 var pingInterval time.Duration = time.Second * 30
 var pingTimeout time.Duration = time.Second * 80
 
-func NewControl(conn net.Conn, encryptMode string, transport string) *Control {
+func NewControl(conn net.Conn, encryptMode string, transport string, tunnels map[string]msg.Tunnel) *Control {
 	ctl := &Control{
 		ctlConn:       conn,
 		die:           make(chan struct{}),
 		toDie:         make(chan struct{}),
 		writeChan:     make(chan writeReq, 128),
 		encryptMode:   encryptMode,
-		tunnels:       make(map[string]msg.TunnelConfig, 0),
+		tunnels:       tunnels,
 		transportMode: transport,
 	}
 	return ctl
@@ -45,7 +44,7 @@ type writeReq struct {
 type Control struct {
 	ctlConn         net.Conn
 	tunnelLock      sync.Mutex
-	tunnels         map[string]msg.TunnelConfig
+	tunnels         map[string]msg.Tunnel
 	preMasterSecret []byte
 	lastRead        uint64
 	encryptMode     string
@@ -122,41 +121,37 @@ func (c *Control) createPipe() {
 				return
 			}
 			var conn net.Conn
-			localProto, hostname, port, err := util.ParseLocalAddr(tunnel.LocalAddr)
-			if err != nil {
-				log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr}).Errorln("util.ParseLocalAddr failed!")
-				return
-			}
-			if localProto == "http" || localProto == "https" || localProto == "" {
-				if port == "" {
-					if localProto == "https" {
-						port = "443"
+			var port uint16 = tunnel.Local.Port
+			if tunnel.Local.Schema == "http" || tunnel.Local.Schema == "https" || tunnel.Local.Schema == "tcp" {
+				if tunnel.Local.Port == 0 {
+					if tunnel.Local.Schema == "https" {
+						port = 443
 					} else {
-						port = "80"
+						port = 80
 					}
 				}
-				conn, err = net.Dial("tcp", fmt.Sprintf("%s:%s", hostname, port))
+				conn, err = net.Dial("tcp", fmt.Sprintf("%s:%d", tunnel.Local.Host, port))
 				if err != nil {
-					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr}).Warningln("pipe dial local failed!")
+					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr()}).Warningln("pipe dial local failed!")
 					return
 				}
-				if tunnel.Protocol == "https" {
+				if tunnel.Local.Schema == "https" {
 					conn = tls.Client(conn, &tls.Config{InsecureSkipVerify: true})
 				}
-			} else if localProto == "unix" {
-				conn, err = net.Dial("unix", hostname)
+			} else if tunnel.Local.Schema == "unix" {
+				conn, err = net.Dial("unix", tunnel.Local.Host)
 				if err != nil {
-					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr}).Warningln("pipe dial local failed!")
+					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr()}).Warningln("pipe dial local failed!")
 					return
 				}
 			} else {
-				if port == "" {
-					log.WithFields(log.Fields{"err": fmt.Sprintf("no port sepicified"), "local": tunnel.LocalAddr}).Errorln("dial local addr failed!")
+				if port == 0 {
+					log.WithFields(log.Fields{"err": fmt.Sprintf("no port sepicified"), "local": tunnel.LocalAddr()}).Errorln("dial local addr failed!")
 					return
 				}
-				conn, err = net.Dial(localProto, hostname)
+				conn, err = net.Dial(tunnel.Local.Schema, fmt.Sprintf("%s:%d", tunnel.Local.Host, port))
 				if err != nil {
-					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr}).Warningln("pipe dial local failed!")
+					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr()}).Warningln("pipe dial local failed!")
 					return
 				}
 			}
@@ -186,14 +181,14 @@ func (c *Control) SyncTunnels(cstm *msg.AddTunnels) error {
 		c.tunnelLock.Lock()
 		c.tunnels[k] = v
 		c.tunnelLock.Unlock()
-		log.WithFields(log.Fields{"local": v.LocalAddr, "remote": v.RemoteAddr()}).Infoln("client sync tunnel complete")
+		log.WithFields(log.Fields{"local": v.LocalAddr, "public": v.PublicAddr()}).Infoln("client sync tunnel complete")
 	}
 	return nil
 }
 
 func (c *Control) ClientAddTunnels() error {
 	cstm := new(msg.AddTunnels)
-	cstm.Tunnels = cliConf.Tunnels
+	cstm.Tunnels = c.tunnels
 	err := msg.WriteMsg(c.ctlConn, msg.TypeAddTunnels, *cstm)
 	if err != nil {
 		return errors.Wrap(err, "WriteMsg cstm")

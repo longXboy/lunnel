@@ -28,7 +28,7 @@ func Int2Short(a uint64) []byte {
 	return link
 }
 
-func ParseLocalAddr(s string) (schema string, hostname string, port string, err error) {
+func ParseAddr(s string) (schema string, hostname string, port uint64, err error) {
 	temp := strings.SplitN(s, "://", 2)
 	if len(temp) == 1 {
 		hostname = temp[0]
@@ -36,17 +36,20 @@ func ParseLocalAddr(s string) (schema string, hostname string, port string, err 
 		schema = temp[0]
 		hostname = temp[1]
 	}
-	if hostname == "" {
-		err = fmt.Errorf("tunnel's hostname is empty")
-		return
-	}
 	idx := strings.LastIndex(hostname, ":")
 	if idx >= 0 {
-		port = hostname[idx+1:]
+		portStr := hostname[idx+1:]
 		hostname = hostname[:idx]
-		_, err = strconv.ParseInt(port, 10, 32)
-		if err != nil {
-			err = fmt.Errorf("tunnel's port is invalid %s", err.Error())
+		if portStr == "" {
+			port = 0
+		} else {
+			port, err = strconv.ParseUint(portStr, 10, 16)
+			if err != nil {
+				err = fmt.Errorf("port invalid %s", err.Error())
+			}
+			if port > 65535 {
+				err = fmt.Errorf("port greater than 65535")
+			}
 		}
 	}
 	return

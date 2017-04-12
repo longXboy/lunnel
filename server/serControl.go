@@ -54,9 +54,9 @@ type writeReq struct {
 }
 
 type Tunnel struct {
-	tunnelConfig msg.TunnelConfig
+	tunnelConfig msg.Tunnel
 	listener     net.Listener
-	tunnelName   string
+	name         string
 	ctl          *Control
 }
 
@@ -65,10 +65,10 @@ func (t Tunnel) Close() {
 		t.listener.Close()
 	}
 	TunnelMapLock.Lock()
-	delete(TunnelMap, t.tunnelConfig.RemoteAddr())
+	delete(TunnelMap, t.tunnelConfig.PublicAddr())
 	TunnelMapLock.Unlock()
 	if serverConf.NotifyEnable {
-		err := contrib.RemoveMember(serverConf.ServerDomain, t.tunnelConfig.RemoteAddr())
+		err := contrib.RemoveMember(serverConf.ServerDomain, t.tunnelConfig.PublicAddr())
 		if err != nil {
 			log.WithFields(log.Fields{"err": err}).Errorln("notify remove member failed!")
 		}
@@ -469,17 +469,12 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
 			delete(c.tunnels, name)
 		}
 		c.tunnelLock.Unlock()
-		tunnelConfig := sstm.Tunnels[name]
-		selfHost := false
-		if tunnelConfig.Hostname == "" {
-			tunnelConfig.Hostname = serverConf.ServerDomain
-			selfHost = true
-		}
-		if tunnelConfig.Protocol == "tcp" || tunnelConfig.Protocol == "udp" {
-			lis, err = net.Listen(tunnelConfig.Protocol, fmt.Sprintf("%s:%d", serverConf.ListenIP, tunnelConfig.RemotePort))
+		tunnel := sstm.Tunnels[name]
+		if tunnel.Public.Schema == "tcp" || tunnel.Public.Schema == "udp" {
+			lis, err = net.Listen(tunnel.Public.Schema, fmt.Sprintf("%s:%d", serverConf.ListenIP, tunnel.Public.Port))
 			if err != nil {
-				log.WithFields(log.Fields{"remote_addr": tunnelConfig.RemoteAddr(), "client_id": c.ClientID.Hex()}).Warningln("forbidden,remote port already in use")
-				c.writeChan <- writeReq{msg.TypeError, msg.Error{fmt.Sprintf("add tunnels failed!forbidden,remote addrs(%s) already in use", tunnelConfig.RemoteAddr())}}
+				log.WithFields(log.Fields{"remote_addr": tunnel.PublicAddr(), "client_id": c.ClientID.Hex()}).Warningln("forbidden,remote port already in use")
+				c.writeChan <- writeReq{msg.TypeError, msg.Error{fmt.Sprintf("add tunnels failed!forbidden,remote addrs(%s) already in use", tunnel.PublicAddr())}}
 				continue
 			}
 			go func(tunnelName string) {
@@ -496,36 +491,40 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
 			}(name)
 			//todo: port should  allocated and managed by server not by OS
 			addr := lis.Addr().(*net.TCPAddr)
-			tunnelConfig.RemotePort = uint16(addr.Port)
-		} else if tunnelConfig.Protocol == "http" || tunnelConfig.Protocol == "https" {
-			if tunnelConfig.Subdomain == "" && selfHost {
+			tunnel.Public.Port = uint16(addr.Port)
+			tunnel.Public.Host = serverConf.ServerDomain
+		} else if tunnel.Public.Schema == "http" || tunnel.Public.Schema == "https" {
+			if tunnel.Public.Host == "" {
 				subDomain := util.Int2Short(atomic.AddUint64(&subDomainIdx, 1))
-				tunnelConfig.Subdomain = string(subDomain)
+				tunnel.Public.Host = fmt.Sprintf("%s.%s", string(subDomain), serverConf.ServerDomain)
 			}
-			if tunnelConfig.Protocol == "http" {
-				tunnelConfig.RemotePort = serverConf.HttpPort
+			if tunnel.Public.Schema == "http" {
+				tunnel.Public.Port = serverConf.HttpPort
 			} else {
-				tunnelConfig.RemotePort = serverConf.HttpsPort
+				tunnel.Public.Port = serverConf.HttpsPort
 			}
 		}
-		tunnel := Tunnel{tunnelConfig: tunnelConfig, listener: lis, ctl: c, tunnelName: name}
+		tunnelControl := Tunnel{tunnelConfig: tunnel, listener: lis, ctl: c, name: name}
 		TunnelMapLock.Lock()
-		_, isok = TunnelMap[tunnelConfig.RemoteAddr()]
+		_, isok = TunnelMap[tunnel.PublicAddr()]
 		if isok {
 			TunnelMapLock.Unlock()
-			log.WithFields(log.Fields{"remote_addr": tunnelConfig.RemoteAddr(), "client_id": c.ClientID.Hex()}).Warningln("forbidden,remote addrs already in use")
-			c.writeChan <- writeReq{msg.TypeError, msg.Error{fmt.Sprintf("add tunnels failed!forbidden,remote addrs(%s) already in use", tunnelConfig.RemoteAddr())}}
+			if lis != nil {
+				lis.Close()
+			}
+			log.WithFields(log.Fields{"remote_addr": tunnel.PublicAddr(), "client_id": c.ClientID.Hex()}).Warningln("forbidden,remote addrs already in use")
+			c.writeChan <- writeReq{msg.TypeError, msg.Error{fmt.Sprintf("add tunnels failed!forbidden,remote addrs(%s) already in use", tunnel.PublicAddr())}}
 			continue
 		}
-		TunnelMap[tunnelConfig.RemoteAddr()] = &tunnel
+		TunnelMap[tunnel.PublicAddr()] = &tunnelControl
 		TunnelMapLock.Unlock()
 		c.tunnelLock.Lock()
-		c.tunnels[name] = &tunnel
+		c.tunnels[name] = &tunnelControl
 		c.tunnelLock.Unlock()
-		sstm.Tunnels[name] = tunnelConfig
+		sstm.Tunnels[name] = tunnel
 
 		if serverConf.NotifyEnable {
-			err = contrib.AddMember(serverConf.ServerDomain, tunnelConfig.RemoteAddr())
+			err = contrib.AddMember(serverConf.ServerDomain, tunnel.PublicAddr())
 			if err != nil {
 				log.WithFields(log.Fields{"err": err}).Errorln("notify add member failed!")
 			}

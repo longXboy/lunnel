@@ -16,6 +16,7 @@ import (
 	"github.com/longXboy/Lunnel/log"
 	"github.com/longXboy/Lunnel/msg"
 	"github.com/longXboy/Lunnel/transport"
+	"github.com/longXboy/Lunnel/util"
 	"github.com/longXboy/smux"
 )
 
@@ -111,7 +112,27 @@ func dialAndRun(transportMode string) {
 		log.WithFields(log.Fields{"err": err}).Warnln("sess.OpenStream failed!")
 		return
 	}
-	ctl := NewControl(stream, cliConf.EncryptMode, transportMode)
+	tunnels := make(map[string]msg.Tunnel, 0)
+	for name, tc := range cliConf.Tunnels {
+		localSchema, localHost, localPort, err := util.ParseAddr(tc.LocalAddr)
+		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Warnln("util.ParseLocalAddr failed!")
+			return
+		}
+		var tunnel msg.Tunnel
+		tunnel.HttpHostRewrite = tc.HttpHostRewrite
+		tunnel.Local.Schema = localSchema
+		tunnel.Local.Host = localHost
+		tunnel.Local.Port = uint16(localPort)
+		tunnel.Public.Schema = tc.Schema
+		tunnel.Public.Host = tc.Host
+		tunnel.Public.Port = tc.Port
+		if tunnel.Public.Host == "" && tunnel.Public.Port == 0 {
+			tunnel.Public.AllowReallocate = true
+		}
+		tunnels[name] = tunnel
+	}
+	ctl := NewControl(stream, cliConf.EncryptMode, transportMode, tunnels)
 	err = ctl.ClientHandShake()
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientHandShake failed!")

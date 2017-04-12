@@ -34,9 +34,9 @@ Lunnel是一款简单易用的内网NAT穿越、反向代理软件，支持http�
   server_addr: <your_server_ip>:8080
   tunnels: 
     2048: 
-      proto: http
+      schema: http
       local: http://127.0.0.1:32768
-      http_rewrite: true
+      http_host_rewrite: www.2408.com
   tls: 
     trusted_cert: ./cacert-example.pem
 	server_name:  example.com
@@ -55,10 +55,9 @@ Lunnel是一款简单易用的内网NAT穿越、反向代理软件，支持http�
   server_addr: <your_server_ip>:8080
   tunnels: 
     docker: 
-      proto: http
+      schema: http
       local: unix:///var/run/docker.sock
-      subdomain: docker
-      hostname: example.com
+      host: docker.exmpale.com
   aes: 
     secret_key: password
   ```

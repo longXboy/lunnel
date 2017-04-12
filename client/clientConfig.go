@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/longXboy/Lunnel/log"
-	"github.com/longXboy/Lunnel/msg"
+	"github.com/longXboy/Lunnel/util"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/pbkdf2"
 	"gopkg.in/yaml.v2"
@@ -24,6 +24,14 @@ type Tls struct {
 	ServerName  string `yaml:"server_name,omitempty"`
 }
 
+type TunnelConfig struct {
+	Schema          string `yaml:"schema,omitempty"`
+	Host            string `yaml:"host,omitempty"`
+	Port            uint16 `yaml:"port,omitempty"`
+	LocalAddr       string `yaml:"local,omitempty"`
+	HttpHostRewrite string `yaml:"http_host_rewrite,omitempty"`
+}
+
 type Config struct {
 	Debug   bool   `yaml:"debug,omitempty"`
 	LogFile string `yaml:"log_file,omitempty"`
@@ -35,8 +43,8 @@ type Config struct {
 	//none:no encryption
 	//aes:encrpted by aes
 	//tls:encrpted by tls,which is default
-	Tunnels   map[string]msg.TunnelConfig `yaml:"tunnels"`
-	AuthToken string                      `yaml:"auth_token,omitempty"`
+	Tunnels   map[string]TunnelConfig `yaml:"tunnels"`
+	AuthToken string                  `yaml:"auth_token,omitempty"`
 	//mix: switch between kcp and tcp automatically,which is default
 	//kcp: communicate with server in kcp
 	//tcp: communicate with server in tcp
@@ -99,9 +107,6 @@ func LoadConfig(configFile string) error {
 	} else {
 		log.Fatalln("invalid encyption:", cliConf.EncryptMode)
 	}
-	if len(cliConf.Tunnels) == 0 {
-		log.Warningln("no proxying tunnels sepcified")
-	}
 	if cliConf.Transport == "" {
 		cliConf.Transport = "mix"
 	} else if cliConf.Transport != "kcp" && cliConf.Transport != "tcp" && cliConf.Transport != "mix" {
@@ -117,6 +122,31 @@ func LoadConfig(configFile string) error {
 	if cliConf.DSN == "" {
 		cliConf.DSN = "https://22946d46117c4bac9e680bf10597c564:e904ecd5c94e46c2aa9d15dcae90ac80@sentry.io/156456"
 	}
+
+	if len(cliConf.Tunnels) == 0 {
+		log.Warningln("no proxying tunnels sepcified!")
+	} else {
+		for name, tunnel := range cliConf.Tunnels {
+			localSchema, localHost, _, err := util.ParseAddr(tunnel.LocalAddr)
+			if err != nil {
+				return errors.Wrapf(err, "parse %s local_address", name)
+			}
+			if localHost == "" {
+				return errors.Errorf("%s local_host can not be empty", name)
+			}
+			if localSchema == "" {
+				localSchema = "tcp"
+			}
+			if tunnel.Schema == "" {
+				tunnel.Schema = localSchema
+			}
+			if tunnel.Port > 65535 {
+				return errors.Errorf("%s public_port can not greater than 65535", name)
+			}
+			cliConf.Tunnels[name] = tunnel
+		}
+	}
+
 	return nil
 }
 
