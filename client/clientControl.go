@@ -181,7 +181,7 @@ func (c *Control) SyncTunnels(cstm *msg.AddTunnels) error {
 		c.tunnelLock.Lock()
 		c.tunnels[k] = v
 		c.tunnelLock.Unlock()
-		log.WithFields(log.Fields{"local": v.LocalAddr, "public": v.PublicAddr()}).Infoln("client sync tunnel complete")
+		log.WithFields(log.Fields{"local": v.LocalAddr(), "public": v.PublicAddr()}).Infoln("client sync tunnel complete")
 	}
 	return nil
 }
@@ -294,7 +294,7 @@ func (c *Control) Run() {
 	}
 }
 
-func (c *Control) ClientHandShake() error {
+func (c *Control) clientHandShake() error {
 	var ckem msg.ControlClientHello
 	var priv []byte
 	var keyMsg []byte
@@ -306,6 +306,9 @@ func (c *Control) ClientHandShake() error {
 		ckem.CipherKey = keyMsg
 	}
 	ckem.AuthToken = cliConf.AuthToken
+	if clientId != nil {
+		ckem.ClientID = clientId
+	}
 	err := msg.WriteMsg(c.ctlConn, msg.TypeControlClientHello, ckem)
 	if err != nil {
 		return errors.Wrap(err, "WriteMsg ckem")
@@ -319,10 +322,14 @@ func (c *Control) ClientHandShake() error {
 		err := body.(*msg.Error)
 		return errors.Wrap(err, "read ClientID")
 	}
-	cidm := body.(*msg.ControlServerHello)
-	c.ClientID = cidm.ClientID
-	if len(cidm.CipherKey) > 0 {
-		preMasterSecret, err := crypto.ProcessKeyExchange(priv, cidm.CipherKey)
+	csh := body.(*msg.ControlServerHello)
+	c.ClientID = csh.ClientID
+	if clientId == nil {
+		clientId = new(crypto.UUID)
+	}
+	*clientId = csh.ClientID
+	if len(csh.CipherKey) > 0 {
+		preMasterSecret, err := crypto.ProcessKeyExchange(priv, csh.CipherKey)
 		if err != nil {
 			return errors.Wrap(err, "crypto.ProcessKeyExchange")
 		}

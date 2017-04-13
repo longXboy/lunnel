@@ -1,7 +1,6 @@
 server_addr: 127.0.0.1:8080
 tunnels: 
   2048: 
-    schema: http
     local: http://127.0.0.1:32768
     http_host_rewrite: www.2048.com
   2048_tcp: 

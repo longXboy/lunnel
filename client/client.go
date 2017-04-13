@@ -20,7 +20,9 @@ import (
 	"github.com/longXboy/smux"
 )
 
-const reconnectInterval = 10
+const reconnectInterval = 8
+
+var clientId *crypto.UUID
 
 func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 	pool := x509.NewCertPool()
@@ -69,7 +71,7 @@ func dialAndRun(transportMode string) {
 	}
 	if mType == msg.TypeError {
 		serverError := body.(*msg.Error)
-		log.WithFields(log.Fields{"server error": serverError.Error()}).Warnln("client hello failed!")
+		log.WithFields(log.Fields{"server error": serverError.Error()}).Errorln("client hello failed!")
 		return
 	} else if mType == msg.TypeServerHello {
 		log.Debugln("recv msg serer hello success")
@@ -133,7 +135,7 @@ func dialAndRun(transportMode string) {
 		tunnels[name] = tunnel
 	}
 	ctl := NewControl(stream, cliConf.EncryptMode, transportMode, tunnels)
-	err = ctl.ClientHandShake()
+	err = ctl.clientHandShake()
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientHandShake failed!")
 		return

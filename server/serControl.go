@@ -58,21 +58,26 @@ type Tunnel struct {
 	listener     net.Listener
 	name         string
 	ctl          *Control
+	isClosed     bool
 }
 
 func (t Tunnel) Close() {
-	if t.listener != nil {
-		t.listener.Close()
+	if t.isClosed {
+		return
 	}
 	TunnelMapLock.Lock()
 	delete(TunnelMap, t.tunnelConfig.PublicAddr())
 	TunnelMapLock.Unlock()
+	if t.listener != nil {
+		t.listener.Close()
+	}
 	if serverConf.NotifyEnable {
 		err := contrib.RemoveMember(serverConf.ServerDomain, t.tunnelConfig.PublicAddr())
 		if err != nil {
 			log.WithFields(log.Fields{"err": err}).Errorln("notify remove member failed!")
 		}
 	}
+	t.isClosed = true
 }
 
 type pipeNode struct {
@@ -307,15 +312,22 @@ func (c *Control) IsClosed() bool {
 	}
 }
 
+func (c *Control) closeTunnels() []*Tunnel {
+	var tunnels []*Tunnel
+	c.tunnelLock.Lock()
+	for _, t := range c.tunnels {
+		t.Close()
+		tunnels = append(tunnels, t)
+	}
+	c.tunnelLock.Unlock()
+	return tunnels
+}
+
 func (c *Control) moderator() {
 	_ = <-c.toDie
 	log.WithFields(log.Fields{"ClientId": c.ClientID.Hex()}).Infoln("close client control")
 	close(c.die)
-	c.tunnelLock.Lock()
-	for _, t := range c.tunnels {
-		t.Close()
-	}
-	c.tunnelLock.Unlock()
+	c.closeTunnels()
 	idle := c.idlePipes
 	for {
 		if idle == nil {
@@ -456,7 +468,7 @@ func proxyConn(userConn net.Conn, c *Control, tunnelName string) {
 
 //add or update tunnel stat
 func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
-	for name, _ := range sstm.Tunnels {
+	for name, tunnel := range sstm.Tunnels {
 		if c.IsClosed() {
 			return
 		}
@@ -469,13 +481,22 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
 			delete(c.tunnels, name)
 		}
 		c.tunnelLock.Unlock()
-		tunnel := sstm.Tunnels[name]
+
 		if tunnel.Public.Schema == "tcp" || tunnel.Public.Schema == "udp" {
+			if tunnel.Public.Port == 0 && oldTunnel != nil && tunnel.Public.Schema == oldTunnel.tunnelConfig.Public.Schema {
+				tunnel.Public.AllowReallocate = true
+				tunnel.Public.Port = oldTunnel.tunnelConfig.Public.Port
+			}
 			lis, err = net.Listen(tunnel.Public.Schema, fmt.Sprintf("%s:%d", serverConf.ListenIP, tunnel.Public.Port))
 			if err != nil {
-				log.WithFields(log.Fields{"remote_addr": tunnel.PublicAddr(), "client_id": c.ClientID.Hex()}).Warningln("forbidden,remote port already in use")
-				c.writeChan <- writeReq{msg.TypeError, msg.Error{fmt.Sprintf("add tunnels failed!forbidden,remote addrs(%s) already in use", tunnel.PublicAddr())}}
-				continue
+				if tunnel.Public.AllowReallocate {
+					lis, err = net.Listen(tunnel.Public.Schema, fmt.Sprintf("%s:%d", serverConf.ListenIP, 0))
+				}
+				if err != nil {
+					log.WithFields(log.Fields{"remote_addr": tunnel.PublicAddr(), "client_id": c.ClientID.Hex()}).Warningln("forbidden,remote port already in use")
+					c.writeChan <- writeReq{msg.TypeError, msg.Error{fmt.Sprintf("add tunnels failed!forbidden,remote addrs(%s) already in use", tunnel.PublicAddr())}}
+					continue
+				}
 			}
 			go func(tunnelName string) {
 				for {
@@ -495,8 +516,13 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
 			tunnel.Public.Host = serverConf.ServerDomain
 		} else if tunnel.Public.Schema == "http" || tunnel.Public.Schema == "https" {
 			if tunnel.Public.Host == "" {
-				subDomain := util.Int2Short(atomic.AddUint64(&subDomainIdx, 1))
-				tunnel.Public.Host = fmt.Sprintf("%s.%s", string(subDomain), serverConf.ServerDomain)
+				if oldTunnel != nil && tunnel.Public.Schema == oldTunnel.tunnelConfig.Public.Schema {
+					tunnel.Public.AllowReallocate = true
+					tunnel.Public.Host = oldTunnel.tunnelConfig.Public.Host
+				} else {
+					subDomain := util.Int2Short(atomic.AddUint64(&subDomainIdx, 1))
+					tunnel.Public.Host = fmt.Sprintf("%s.%s", string(subDomain), serverConf.ServerDomain)
+				}
 			}
 			if tunnel.Public.Schema == "http" {
 				tunnel.Public.Port = serverConf.HttpPort
@@ -572,22 +598,39 @@ func (c *Control) ServerHandShake() error {
 		c.preMasterSecret = preMasterSecret
 		shello.CipherKey = keyMsg
 	}
-	shello.ClientID = c.GenerateClientId()
+	if chello.ClientID != nil {
+		shello.ClientID = *chello.ClientID
+	} else {
+		shello.ClientID = c.GenerateClientId()
+	}
+	c.ClientID = shello.ClientID
 	err = msg.WriteMsg(c.ctlConn, msg.TypeControlServerHello, shello)
 	if err != nil {
 		return errors.Wrap(err, "Write ClientId")
 	}
 
 	ControlMapLock.Lock()
+	old, isok := ControlMap[c.ClientID]
 	ControlMap[c.ClientID] = c
 	ControlMapLock.Unlock()
+	if isok {
+		oldTunnels := old.closeTunnels()
+		old.Close()
+		for _, old := range oldTunnels {
+			c.tunnels[old.name] = old
+		}
+	}
+
 	return nil
 }
 
 func PipeHandShake(conn net.Conn, phs *msg.PipeClientHello) error {
 	ControlMapLock.RLock()
-	ctl := ControlMap[phs.ClientID]
+	ctl, isok := ControlMap[phs.ClientID]
 	ControlMapLock.RUnlock()
+	if !isok {
+		return errors.Errorf("invalid phs.client_id %s", phs.ClientID.Hex())
+	}
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.MaxReceiveBuffer = 4194304
 	var err error

@@ -41,7 +41,7 @@ type ClientHello struct {
 type ControlClientHello struct {
 	CipherKey []byte
 	AuthToken string
-	ClientID  crypto.UUID
+	ClientID  *crypto.UUID
 }
 
 type ControlServerHello struct {
@@ -78,7 +78,11 @@ func (tc Tunnel) PublicAddr() string {
 }
 
 func (tc Tunnel) LocalAddr() string {
-	return fmt.Sprintf("%s://%s:%d", tc.Local.Schema, tc.Local.Host, tc.Local.Port)
+	if tc.Local.Port == 0 {
+		return fmt.Sprintf("%s://%s", tc.Local.Schema, tc.Local.Host)
+	} else {
+		return fmt.Sprintf("%s://%s:%d", tc.Local.Schema, tc.Local.Host, tc.Local.Port)
+	}
 }
 
 type AddTunnels struct {
@@ -123,7 +127,7 @@ func ReadMsgWithoutTimeout(r net.Conn) (MsgType, interface{}, error) {
 }
 
 func ReadMsg(r net.Conn) (MsgType, interface{}, error) {
-	return readMsg(r, time.Second*10)
+	return readMsg(r, time.Second*12)
 }
 
 func readMsg(r net.Conn, timeout time.Duration) (MsgType, interface{}, error) {

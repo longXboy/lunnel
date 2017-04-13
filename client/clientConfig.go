@@ -52,6 +52,8 @@ type Config struct {
 	HttpProxy      string `yaml:"http_proxy,omitempty"`
 	DSN            string `yaml:"dsn,omitempty"`
 	EnableCompress bool   `yaml:"enable_compress,omitempty"`
+	Durable        bool   `yaml:"durable,omitempty"`
+	DurableFile    string `yaml:"durable_file,omitempty"`
 }
 
 var cliConf Config
@@ -146,7 +148,11 @@ func LoadConfig(configFile string) error {
 			cliConf.Tunnels[name] = tunnel
 		}
 	}
-
+	if cliConf.Durable {
+		if cliConf.DurableFile == "" {
+			cliConf.DurableFile = "./id.lunnel"
+		}
+	}
 	return nil
 }
 
