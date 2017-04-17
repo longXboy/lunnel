@@ -1,5 +1,5 @@
 {
-    "memo": "93709bb2b53bc341afe1f4ee5d6be08f3173309e50c988ba7376b98dfa6788f7",
+    "memo": "41f00a0f5146cb4f2af170b83e1a846ddb6a2c0f555b5f79e4f0084b1fb85318",
     "projects": [
         {
             "name": "github.com/Sirupsen/logrus",
@@ -65,9 +65,17 @@
             ]
         },
         {
+            "name": "github.com/satori/go.uuid",
+            "version": "v1.1.0",
+            "revision": "879c5887cd475cd7864858769793b2ceb0d44feb",
+            "packages": [
+                "."
+            ]
+        },
+        {
             "name": "github.com/xtaci/kcp-go",
-            "version": "v3.14",
-            "revision": "0b0731ef3f184a8985edcb4ca26a4b0598c6dc1a",
+            "version": "v3.15",
+            "revision": "e820b1bd15f3e98fabd014eab5585b5cf55db4f1",
             "packages": [
                 "."
             ]
@@ -75,7 +83,7 @@
         {
             "name": "golang.org/x/crypto",
             "branch": "master",
-            "revision": "9ef620b9ca2f82b55030ffd4f41327fa9e77a92c",
+            "revision": "cbc3d0884eac986df6e78a039b8792e869bff863",
             "packages": [
                 "blowfish",
                 "cast5",
@@ -90,7 +98,7 @@
         {
             "name": "golang.org/x/net",
             "branch": "master",
-            "revision": "d1e1b351919c6738fdeb9893d5c998b161464f0c",
+            "revision": "5602c733f70afc6dcec6766be0d5034d4c4f14de",
             "packages": [
                 "bpf",
                 "internal/iana",

@@ -6,8 +6,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/longXboy/Lunnel/crypto"
 	"github.com/pkg/errors"
+	"github.com/satori/go.uuid"
 )
 
 type MsgType uint8
@@ -41,17 +41,17 @@ type ClientHello struct {
 type ControlClientHello struct {
 	CipherKey []byte
 	AuthToken string
-	ClientID  *crypto.UUID
+	ClientID  *uuid.UUID
 }
 
 type ControlServerHello struct {
-	ClientID  crypto.UUID
+	ClientID  uuid.UUID
 	CipherKey []byte
 }
 
 type PipeClientHello struct {
-	Once     crypto.UUID
-	ClientID crypto.UUID
+	Once     uuid.UUID
+	ClientID uuid.UUID
 }
 
 type Public struct {

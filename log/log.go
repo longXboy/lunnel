@@ -3,26 +3,20 @@ package log
 import (
 	"errors"
 	"fmt"
-	rawLog "log"
 	"os"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/getsentry/raven-go"
 )
 
-func Init(isDebug bool, logFile string) {
+func Init(isDebug bool, fileWriter *os.File) {
 	if isDebug {
 		logrus.SetLevel(logrus.DebugLevel)
 	} else {
 		logrus.SetLevel(logrus.InfoLevel)
 	}
-	if logFile != "" {
-		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
-		if err != nil {
-			rawLog.Fatalf("open log file failed!err:=%v\n", err)
-			return
-		}
-		logrus.SetOutput(f)
+	if fileWriter != nil {
+		logrus.SetOutput(fileWriter)
 		logrus.SetFormatter(&logrus.JSONFormatter{})
 	} else {
 		logrus.SetOutput(os.Stdout)
@@ -49,7 +43,6 @@ func (e *Entry) Errorln(args ...interface{}) {
 	for k, v := range e.entry.Data {
 		m[k] = fmt.Sprintf("%v", v)
 	}
-	fmt.Println("send to sentry")
 	raven.CaptureError(errors.New(fmt.Sprintln(args...)), m)
 	e.entry.Errorln(args...)
 }
@@ -63,7 +56,6 @@ func (e *Entry) Warningln(args ...interface{}) {
 	for k, v := range e.entry.Data {
 		m[k] = fmt.Sprintf("%v", v)
 	}
-	fmt.Println("send to sentry")
 
 	raven.CaptureMessage(fmt.Sprintln(args...), m)
 	e.entry.Warningln(args...)
@@ -74,7 +66,6 @@ func (e *Entry) Warnln(args ...interface{}) {
 	for k, v := range e.entry.Data {
 		m[k] = fmt.Sprintf("%v", v)
 	}
-	fmt.Println("send to sentry")
 
 	raven.CaptureMessage(fmt.Sprintln(args...), m)
 	e.entry.Warnln(args...)

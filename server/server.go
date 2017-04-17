@@ -10,15 +10,16 @@ import (
 	rawLog "log"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/getsentry/raven-go"
-	"github.com/longXboy/Lunnel/contrib"
-	"github.com/longXboy/Lunnel/crypto"
-	"github.com/longXboy/Lunnel/log"
-	"github.com/longXboy/Lunnel/msg"
-	"github.com/longXboy/Lunnel/transport"
-	"github.com/longXboy/Lunnel/vhost"
+	"github.com/longXboy/lunnel/contrib"
+	"github.com/longXboy/lunnel/crypto"
+	"github.com/longXboy/lunnel/log"
+	"github.com/longXboy/lunnel/msg"
+	"github.com/longXboy/lunnel/transport"
+	"github.com/longXboy/lunnel/vhost"
 	"github.com/longXboy/smux"
 )
 
@@ -29,8 +30,17 @@ func Main() {
 	if err != nil {
 		rawLog.Fatalf("load config failed!err:=%v", err)
 	}
-	log.Init(serverConf.Debug, serverConf.LogFile)
-
+	if serverConf.LogFile != "" {
+		f, err := os.OpenFile(serverConf.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
+		if err != nil {
+			rawLog.Fatalf("open log file failed!err:=%v\n", err)
+			return
+		}
+		defer f.Close()
+		log.Init(serverConf.Debug, f)
+	} else {
+		log.Init(serverConf.Debug, nil)
+	}
 	raven.SetDSN(serverConf.DSN)
 	if serverConf.AuthEnable {
 		contrib.InitAuth(serverConf.AuthUrl)
@@ -299,10 +309,10 @@ func handleControl(conn net.Conn, cch *msg.ClientHello) {
 	err := ctl.ServerHandShake()
 	if err != nil {
 		conn.Close()
-		log.WithFields(log.Fields{"err": err, "client_id": ctl.ClientID.Hex()}).Errorln("ctl.ServerHandShake failed!")
+		log.WithFields(log.Fields{"err": err, "client_id": ctl.ClientID.String()}).Errorln("ctl.ServerHandShake failed!")
 		return
 	}
-	log.WithFields(log.Fields{"client_id": ctl.ClientID.Hex(), "encrypt_mode": ctl.encryptMode, "enableCompress": ctl.enableCompress}).Infoln("client handshake success!")
+	log.WithFields(log.Fields{"client_id": ctl.ClientID.String(), "encrypt_mode": ctl.encryptMode, "enableCompress": ctl.enableCompress}).Infoln("client handshake success!")
 	ctl.Serve()
 }
 

@@ -25,7 +25,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/longXboy/Lunnel/util"
+	"github.com/longXboy/lunnel/util"
 	"github.com/pkg/errors"
 )
 

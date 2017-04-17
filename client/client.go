@@ -9,20 +9,22 @@ import (
 	"io"
 	"io/ioutil"
 	rawLog "log"
+	"os"
 	"time"
 
 	"github.com/getsentry/raven-go"
-	"github.com/longXboy/Lunnel/crypto"
-	"github.com/longXboy/Lunnel/log"
-	"github.com/longXboy/Lunnel/msg"
-	"github.com/longXboy/Lunnel/transport"
-	"github.com/longXboy/Lunnel/util"
+	"github.com/longXboy/lunnel/crypto"
+	"github.com/longXboy/lunnel/log"
+	"github.com/longXboy/lunnel/msg"
+	"github.com/longXboy/lunnel/transport"
+	"github.com/longXboy/lunnel/util"
 	"github.com/longXboy/smux"
+	"github.com/satori/go.uuid"
 )
 
 const reconnectInterval = 8
 
-var clientId *crypto.UUID
+var clientId *uuid.UUID
 
 func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 	pool := x509.NewCertPool()
@@ -140,7 +142,7 @@ func dialAndRun(transportMode string) {
 		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientHandShake failed!")
 		return
 	}
-	log.WithFields(log.Fields{"client_id": ctl.ClientID.Hex()}).Infoln("server handshake success!")
+	log.WithFields(log.Fields{"client_id": ctl.ClientID.String()}).Infoln("server handshake success!")
 	err = ctl.ClientAddTunnels()
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientSyncTunnels failed!")
@@ -156,9 +158,41 @@ func Main() {
 	if err != nil {
 		rawLog.Fatalf("load config failed!err:=%v", err)
 	}
-	log.Init(cliConf.Debug, cliConf.LogFile)
-
+	if cliConf.LogFile != "" {
+		f, err := os.OpenFile(cliConf.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
+		if err != nil {
+			rawLog.Fatalf("open log file failed!err:=%v\n", err)
+			return
+		}
+		defer f.Close()
+		log.Init(cliConf.Debug, f)
+	} else {
+		log.Init(cliConf.Debug, nil)
+	}
 	raven.SetDSN(cliConf.DSN)
+
+	if cliConf.Durable && cliConf.DurableFile != "" {
+		idFile, err := os.OpenFile(cliConf.DurableFile, os.O_RDONLY|os.O_CREATE, os.ModePerm)
+		if err != nil {
+			rawLog.Fatalf("open log file %s failed!err:=%v\n", cliConf.DurableFile, err)
+			return
+		}
+		content, err := ioutil.ReadAll(idFile)
+		if err != nil {
+			idFile.Close()
+			rawLog.Fatalf("read id file content failed!err:=%v\n", err)
+		} else {
+			idFile.Close()
+		}
+		if len(content) > 0 {
+			u, err := uuid.FromString(string(content))
+			if err != nil {
+				log.WithFields(log.Fields{"err": err, "content": string(content)}).Warningln("unmarshal uuid failed!")
+			} else {
+				clientId = &u
+			}
+		}
+	}
 
 	var transportMode string
 	var transportRetry int
@@ -182,7 +216,7 @@ func Main() {
 			}
 		}
 		dialAndRun(transportMode)
-		if time.Now().Sub(start) > time.Duration(pingTimeout*3) {
+		if time.Now().Sub(start) > time.Duration(cliConf.Health.TimeOut*int64(time.Second)*3) {
 			transportRetry = 0
 		}
 	}

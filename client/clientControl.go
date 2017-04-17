@@ -12,16 +12,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/longXboy/Lunnel/crypto"
-	"github.com/longXboy/Lunnel/log"
-	"github.com/longXboy/Lunnel/msg"
-	"github.com/longXboy/Lunnel/transport"
+	"github.com/longXboy/lunnel/crypto"
+	"github.com/longXboy/lunnel/log"
+	"github.com/longXboy/lunnel/msg"
+	"github.com/longXboy/lunnel/transport"
 	"github.com/longXboy/smux"
 	"github.com/pkg/errors"
+	"github.com/satori/go.uuid"
 )
-
-var pingInterval time.Duration = time.Second * 30
-var pingTimeout time.Duration = time.Second * 80
 
 func NewControl(conn net.Conn, encryptMode string, transport string, tunnels map[string]msg.Tunnel) *Control {
 	ctl := &Control{
@@ -55,7 +53,7 @@ type Control struct {
 	toDie     chan struct{}
 	writeChan chan writeReq
 
-	ClientID crypto.UUID
+	ClientID uuid.UUID
 }
 
 func (c *Control) Close() {
@@ -204,11 +202,11 @@ func (c *Control) recvLoop() {
 		}
 		mType, body, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
 		if err != nil {
-			log.WithFields(log.Fields{"err": err, "client_id": c.ClientID.Hex()}).Warningln("ReadMsgWithoutTimeout in recv loop failed")
+			log.WithFields(log.Fields{"err": err, "client_id": c.ClientID.String()}).Warningln("ReadMsgWithoutTimeout in recv loop failed")
 			c.Close()
 			return
 		}
-		log.WithFields(log.Fields{"mType": mType}).Debugln("recv msg from server")
+		log.WithFields(log.Fields{"type": mType, "body": body}).Debugln("recv msg")
 		atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 		switch mType {
 		case msg.TypePong:
@@ -235,14 +233,15 @@ func (c *Control) writeLoop() {
 		select {
 		case msgBody := <-c.writeChan:
 			if msgBody.mType == msg.TypePing || msgBody.mType == msg.TypePong {
-				if time.Now().Before(lastWrite.Add(pingInterval / 2)) {
+				if time.Now().Before(lastWrite.Add(time.Duration(cliConf.Health.Interval * int64(time.Second) / 2))) {
 					continue
 				}
 			}
+			log.WithFields(log.Fields{"type": msgBody.mType, "body": msgBody.body}).Debugln("ready to send msg")
 			lastWrite = time.Now()
 			err := msg.WriteMsg(c.ctlConn, msgBody.mType, msgBody.body)
 			if err != nil {
-				log.WithFields(log.Fields{"mType": msgBody.mType, "body": fmt.Sprintf("%v", msgBody.body), "client_id": c.ClientID.Hex(), "err": err}).Warningln("send msg to server failed!")
+				log.WithFields(log.Fields{"mType": msgBody.mType, "body": fmt.Sprintf("%v", msgBody.body), "client_id": c.ClientID.String(), "err": err}).Warningln("send msg to server failed!")
 				c.Close()
 				return
 			}
@@ -258,7 +257,7 @@ func (c *Control) listenAndStop() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
 	select {
 	case s := <-sigChan:
-		log.WithFields(log.Fields{"signal": s.String(), "client_id": c.ClientID.Hex()}).Infoln("got signal to stop")
+		log.WithFields(log.Fields{"signal": s.String(), "client_id": c.ClientID.String()}).Infoln("got signal to stop")
 		c.Close()
 		time.Sleep(time.Millisecond * 300)
 		os.Exit(1)
@@ -273,13 +272,13 @@ func (c *Control) Run() {
 	go c.writeLoop()
 	go c.listenAndStop()
 
-	ticker := time.NewTicker(pingInterval)
+	ticker := time.NewTicker(time.Duration(cliConf.Health.Interval * int64(time.Second)))
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			if (uint64(time.Now().UnixNano()) - atomic.LoadUint64(&c.lastRead)) > uint64(pingTimeout) {
-				log.WithFields(log.Fields{"client_id": c.ClientID.Hex()}).Warningln("recv server ping time out!")
+			if (uint64(time.Now().UnixNano()) - atomic.LoadUint64(&c.lastRead)) > uint64(cliConf.Health.TimeOut*int64(time.Second)) {
+				log.WithFields(log.Fields{"client_id": c.ClientID.String()}).Warningln("recv server ping time out!")
 				c.Close()
 				return
 			}
@@ -324,10 +323,21 @@ func (c *Control) clientHandShake() error {
 	}
 	csh := body.(*msg.ControlServerHello)
 	c.ClientID = csh.ClientID
-	if clientId == nil {
-		clientId = new(crypto.UUID)
+
+	clientId = &csh.ClientID
+
+	if cliConf.Durable && cliConf.DurableFile != "" {
+		idFile, err := os.OpenFile(cliConf.DurableFile, os.O_CREATE|os.O_WRONLY, os.ModePerm)
+		if err != nil {
+			log.WithFields(log.Fields{"err": err, "path": cliConf.DurableFile}).Warningln("open file failed")
+		} else {
+			n, err := idFile.WriteString(clientId.String())
+			if err != nil || n != len(clientId.String()) {
+				log.WithFields(log.Fields{"err": err, "content": clientId.String(), "nwrite": n}).Warningln("write file failed!")
+			}
+		}
+		idFile.Close()
 	}
-	*clientId = csh.ClientID
 	if len(csh.CipherKey) > 0 {
 		preMasterSecret, err := crypto.ProcessKeyExchange(priv, csh.CipherKey)
 		if err != nil {
@@ -340,7 +350,7 @@ func (c *Control) clientHandShake() error {
 
 func (c *Control) pipeHandShake(conn net.Conn) (*smux.Session, error) {
 	var phs msg.PipeClientHello
-	phs.Once = crypto.GenUUID()
+	phs.Once = uuid.NewV4()
 	phs.ClientID = c.ClientID
 	err := msg.WriteMsg(conn, msg.TypePipeClientHello, phs)
 	if err != nil {

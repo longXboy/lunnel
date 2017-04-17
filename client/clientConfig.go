@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/longXboy/Lunnel/log"
-	"github.com/longXboy/Lunnel/util"
+	"github.com/longXboy/lunnel/log"
+	"github.com/longXboy/lunnel/util"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/pbkdf2"
 	"gopkg.in/yaml.v2"
@@ -30,6 +30,11 @@ type TunnelConfig struct {
 	Port            uint16 `yaml:"port,omitempty"`
 	LocalAddr       string `yaml:"local,omitempty"`
 	HttpHostRewrite string `yaml:"http_host_rewrite,omitempty"`
+}
+
+type Health struct {
+	Interval int64 `yaml:"interval,omitempty"`
+	TimeOut  int64 `yaml:"timeout,omitempty"`
 }
 
 type Config struct {
@@ -54,6 +59,7 @@ type Config struct {
 	EnableCompress bool   `yaml:"enable_compress,omitempty"`
 	Durable        bool   `yaml:"durable,omitempty"`
 	DurableFile    string `yaml:"durable_file,omitempty"`
+	Health         Health `yaml:"health,omitempty"`
 }
 
 var cliConf Config
@@ -150,8 +156,14 @@ func LoadConfig(configFile string) error {
 	}
 	if cliConf.Durable {
 		if cliConf.DurableFile == "" {
-			cliConf.DurableFile = "./id.lunnel"
+			cliConf.DurableFile = "./lunnel.id"
 		}
+	}
+	if cliConf.Health.Interval == 0 {
+		cliConf.Health.Interval = 20
+	}
+	if cliConf.Health.TimeOut == 0 {
+		cliConf.Health.TimeOut = 50
 	}
 	return nil
 }

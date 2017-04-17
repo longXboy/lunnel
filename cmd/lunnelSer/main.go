@@ -1,6 +1,6 @@
 package main
 
-import "github.com/longXboy/Lunnel/server"
+import "github.com/longXboy/lunnel/server"
 
 func main() {
 	server.Main()

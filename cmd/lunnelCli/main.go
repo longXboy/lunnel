@@ -1,6 +1,6 @@
 package main
 
-import "github.com/longXboy/Lunnel/client"
+import "github.com/longXboy/lunnel/client"
 
 func main() {
 	client.Main()

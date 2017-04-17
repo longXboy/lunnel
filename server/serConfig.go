@@ -6,7 +6,7 @@ import (
 	"io/ioutil"
 	"strings"
 
-	"github.com/longXboy/Lunnel/log"
+	"github.com/longXboy/lunnel/log"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/pbkdf2"
 	"gopkg.in/yaml.v2"
@@ -19,6 +19,11 @@ type Aes struct {
 type Tls struct {
 	TlsCert string `yaml:"cert,omitempty"`
 	TlsKey  string `yaml:"key,omitempty"`
+}
+
+type Health struct {
+	Interval int64 `yaml:"interval,omitempty"`
+	TimeOut  int64 `yaml:"timeout,omitempty"`
 }
 
 type Config struct {
@@ -38,6 +43,7 @@ type Config struct {
 	NotifyUrl    string `yaml:"notify_url,omitempty"`
 	NotifyKey    string `yaml:"notify_key,omitempty"`
 	DSN          string `yaml:"dsn,omitempty"`
+	Health       Health `yaml:"health,omitempty"`
 }
 
 var serverConf Config
@@ -86,6 +92,12 @@ func LoadConfig(configFile string) error {
 	}
 	if serverConf.DSN == "" {
 		serverConf.DSN = "https://22946d46117c4bac9e680bf10597c564:e904ecd5c94e46c2aa9d15dcae90ac80@sentry.io/156456"
+	}
+	if serverConf.Health.Interval == 0 {
+		serverConf.Health.Interval = 20
+	}
+	if serverConf.Health.TimeOut == 0 {
+		serverConf.Health.TimeOut = 50
 	}
 	return nil
 }
