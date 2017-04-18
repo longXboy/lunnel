@@ -26,7 +26,7 @@ func NewControl(conn net.Conn, encryptMode string, transport string, tunnels map
 		ctlConn:       conn,
 		die:           make(chan struct{}),
 		toDie:         make(chan struct{}),
-		writeChan:     make(chan writeReq, 128),
+		writeChan:     make(chan writeReq, 64),
 		encryptMode:   encryptMode,
 		tunnels:       tunnels,
 		transportMode: transport,
@@ -62,7 +62,7 @@ func (c *Control) Close() {
 	return
 }
 
-func (c *Control) IsClosed() bool {
+func (c *Control) isClosed() bool {
 	select {
 	case <-c.die:
 		return true
@@ -98,9 +98,6 @@ func (c *Control) createPipe() {
 		atomic.AddInt64(&c.totalPipes, -1)
 	}()
 	for {
-		if c.IsClosed() {
-			return
-		}
 		if pipe.IsClosed() {
 			return
 		}
@@ -197,9 +194,6 @@ func (c *Control) ClientAddTunnels() error {
 func (c *Control) recvLoop() {
 	atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 	for {
-		if c.IsClosed() {
-			return
-		}
 		mType, body, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
 		if err != nil {
 			log.WithFields(log.Fields{"err": err, "client_id": c.ClientID.String()}).Warningln("ReadMsgWithoutTimeout in recv loop failed")
@@ -211,7 +205,12 @@ func (c *Control) recvLoop() {
 		switch mType {
 		case msg.TypePong:
 		case msg.TypePing:
-			c.writeChan <- writeReq{msg.TypePong, nil}
+			select {
+			case c.writeChan <- writeReq{msg.TypePong, nil}:
+			default:
+				c.Close()
+				return
+			}
 		case msg.TypePipeReq:
 			go c.createPipe()
 		case msg.TypeAddTunnels:
@@ -220,6 +219,7 @@ func (c *Control) recvLoop() {
 			log.Errorln("recv server error:", body.(*msg.Error).Error())
 			c.Close()
 			return
+		default:
 		}
 	}
 }
@@ -227,9 +227,6 @@ func (c *Control) recvLoop() {
 func (c *Control) writeLoop() {
 	lastWrite := time.Now()
 	for {
-		if c.IsClosed() {
-			return
-		}
 		select {
 		case msgBody := <-c.writeChan:
 			if msgBody.mType == msg.TypePing || msgBody.mType == msg.TypePong {
@@ -257,12 +254,20 @@ func (c *Control) listenAndStop() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
 	select {
 	case s := <-sigChan:
+		go func() {
+			time.Sleep(time.Millisecond * 250)
+			os.Exit(1)
+		}()
 		log.WithFields(log.Fields{"signal": s.String(), "client_id": c.ClientID.String()}).Infoln("got signal to stop")
-		c.Close()
-		time.Sleep(time.Millisecond * 300)
-		os.Exit(1)
+		select {
+		case c.writeChan <- writeReq{msg.TypeExit, nil}:
+		default:
+			os.Exit(1)
+			return
+		}
+		return
 	case <-c.die:
-		signal.Reset()
+		signal.Reset(syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
 	}
 }
 
@@ -284,7 +289,8 @@ func (c *Control) Run() {
 			}
 			select {
 			case c.writeChan <- writeReq{msg.TypePing, nil}:
-			case _ = <-c.die:
+			default:
+				c.Close()
 				return
 			}
 		case <-c.die:
