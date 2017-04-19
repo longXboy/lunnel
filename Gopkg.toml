@@ -1,0 +1,20 @@
+
+[[dependencies]]
+  branch = "master"
+  name = "github.com/klauspost/compress"
+
+[[dependencies]]
+  branch = "master"
+  name = "github.com/longXboy/smux"
+
+[[dependencies]]
+  branch = "master"
+  name = "github.com/pkg/errors"
+
+[[dependencies]]
+  branch = "master"
+  name = "golang.org/x/crypto"
+
+[[dependencies]]
+  branch = "master"
+  name = "golang.org/x/net"

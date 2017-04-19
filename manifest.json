@@ -1,7 +1,0 @@
-{
-    "dependencies": {
-        "github.com/longXboy/smux": {
-            "revision": "9c97aa9117464d9101996f3c08e06b17480ffe2f"
-        }
-    }
-}

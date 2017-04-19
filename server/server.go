@@ -54,6 +54,7 @@ func Main() {
 	go listenAndServe("kcp")
 	go listenAndServe("tcp")
 	go serveManage()
+
 	wait := make(chan struct{})
 	<-wait
 }

@@ -1,0 +1,85 @@
+memo = "3e20a742f88f2fe4dd03a2ac9e964a9413af0866c2c4f32751347515ecc5ee9a"
+
+[[projects]]
+  name = "github.com/Sirupsen/logrus"
+  packages = ["."]
+  revision = "ba1b36c82c5e05c4f912a88eab0dcd91a171688f"
+  version = "v0.11.5"
+
+[[projects]]
+  name = "github.com/certifi/gocertifi"
+  packages = ["."]
+  revision = "a9c833d2837d3b16888d55d5aafa9ffe9afb22b0"
+  version = "2017.04.17"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/getsentry/raven-go"
+  packages = ["."]
+  revision = "b68337dbf03e7fbb53d9fd9b63fd09b28e8f13f7"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/klauspost/compress"
+  packages = ["snappy"]
+  revision = "e80ca55b53e5e6f53deed5c7842e7b7da95e1dc7"
+
+[[projects]]
+  name = "github.com/klauspost/cpuid"
+  packages = ["."]
+  revision = "09cded8978dc9e80714c4d85b0322337b0a1e5e0"
+  version = "v1.0"
+
+[[projects]]
+  name = "github.com/klauspost/reedsolomon"
+  packages = ["."]
+  revision = "5abf0ee302ccf4834e84f63ff74eca3e8b88e4e2"
+  version = "1.3"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/longXboy/smux"
+  packages = ["."]
+  revision = "9c97aa9117464d9101996f3c08e06b17480ffe2f"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/pkg/errors"
+  packages = ["."]
+  revision = "ff09b135c25aae272398c51a07235b90a75aa4f0"
+
+[[projects]]
+  name = "github.com/satori/go.uuid"
+  packages = ["."]
+  revision = "879c5887cd475cd7864858769793b2ceb0d44feb"
+  version = "v1.1.0"
+
+[[projects]]
+  name = "github.com/xtaci/kcp-go"
+  packages = ["."]
+  revision = "e820b1bd15f3e98fabd014eab5585b5cf55db4f1"
+  version = "v3.15"
+
+[[projects]]
+  branch = "master"
+  name = "golang.org/x/crypto"
+  packages = ["blowfish","cast5","pbkdf2","salsa20","salsa20/salsa","tea","twofish","xtea"]
+  revision = "12c985af8526c1f6f0c463bbfd9d69623d13b323"
+
+[[projects]]
+  branch = "master"
+  name = "golang.org/x/net"
+  packages = ["bpf","context","internal/iana","internal/netreflect","ipv4"]
+  revision = "5602c733f70afc6dcec6766be0d5034d4c4f14de"
+
+[[projects]]
+  branch = "master"
+  name = "golang.org/x/sys"
+  packages = ["unix"]
+  revision = "f3918c30c5c2cb527c0b071a27c35120a6c0719a"
+
+[[projects]]
+  branch = "v2"
+  name = "gopkg.in/yaml.v2"
+  packages = ["."]
+  revision = "cd8b52f8269e0feb286dfeef29f8fe4d5b397e0b"

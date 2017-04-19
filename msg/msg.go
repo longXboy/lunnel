@@ -23,6 +23,7 @@ const (
 	TypePing
 	TypePong
 	TypeError
+	TypeExit
 )
 
 type Error struct {
@@ -146,7 +147,7 @@ func readMsg(r net.Conn, timeout time.Duration) (MsgType, interface{}, error) {
 		out = new(PipeClientHello)
 	} else if MsgType(header[0]) == TypeAddTunnels {
 		out = new(AddTunnels)
-	} else if MsgType(header[0]) == TypePipeReq || MsgType(header[0]) == TypePing || MsgType(header[0]) == TypePong || MsgType(header[0]) == TypeServerHello {
+	} else if MsgType(header[0]) == TypePipeReq || MsgType(header[0]) == TypePing || MsgType(header[0]) == TypePong || MsgType(header[0]) == TypeServerHello || MsgType(header[0]) == TypeExit {
 		return MsgType(header[0]), nil, nil
 	} else if MsgType(header[0]) == TypeClientHello {
 		out = new(ClientHello)

@@ -19,17 +19,20 @@ import (
 	"github.com/longXboy/smux"
 	"github.com/pkg/errors"
 	"github.com/satori/go.uuid"
+	"golang.org/x/net/context"
 )
 
 func NewControl(conn net.Conn, encryptMode string, transport string, tunnels map[string]msg.Tunnel) *Control {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	ctl := &Control{
 		ctlConn:       conn,
-		die:           make(chan struct{}),
-		toDie:         make(chan struct{}),
-		writeChan:     make(chan writeReq, 128),
+		writeChan:     make(chan writeReq, 64),
 		encryptMode:   encryptMode,
 		tunnels:       tunnels,
 		transportMode: transport,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 	return ctl
 }
@@ -40,6 +43,8 @@ type writeReq struct {
 }
 
 type Control struct {
+	ClientID uuid.UUID
+
 	ctlConn         net.Conn
 	tunnelLock      sync.Mutex
 	tunnels         map[string]msg.Tunnel
@@ -49,31 +54,19 @@ type Control struct {
 	transportMode   string
 	totalPipes      int64
 
-	die       chan struct{}
-	toDie     chan struct{}
 	writeChan chan writeReq
-
-	ClientID uuid.UUID
+	cancel    context.CancelFunc
+	ctx       context.Context
 }
 
 func (c *Control) Close() {
-	c.toDie <- struct{}{}
+	c.cancel()
 	log.WithField("time", time.Now().UnixNano()).Debugln("control closing")
 	return
 }
 
-func (c *Control) IsClosed() bool {
-	select {
-	case <-c.die:
-		return true
-	default:
-		return false
-	}
-}
-
 func (c *Control) moderator() {
-	_ = <-c.toDie
-	close(c.die)
+	_ = <-c.ctx.Done()
 	c.ctlConn.Close()
 }
 
@@ -98,15 +91,12 @@ func (c *Control) createPipe() {
 		atomic.AddInt64(&c.totalPipes, -1)
 	}()
 	for {
-		if c.IsClosed() {
-			return
-		}
 		if pipe.IsClosed() {
 			return
 		}
 		stream, err := pipe.AcceptStream()
 		if err != nil {
-			log.WithFields(log.Fields{"err": err, "time": time.Now().Unix()}).Warningln("pipeAcceptStream failed!")
+			log.WithFields(log.Fields{"err": err, "time": time.Now().Unix(), "client_id": c.ClientID}).Warningln("pipeAcceptStream failed!")
 			return
 		}
 		go func() {
@@ -197,9 +187,6 @@ func (c *Control) ClientAddTunnels() error {
 func (c *Control) recvLoop() {
 	atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 	for {
-		if c.IsClosed() {
-			return
-		}
 		mType, body, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
 		if err != nil {
 			log.WithFields(log.Fields{"err": err, "client_id": c.ClientID.String()}).Warningln("ReadMsgWithoutTimeout in recv loop failed")
@@ -211,7 +198,12 @@ func (c *Control) recvLoop() {
 		switch mType {
 		case msg.TypePong:
 		case msg.TypePing:
-			c.writeChan <- writeReq{msg.TypePong, nil}
+			select {
+			case c.writeChan <- writeReq{msg.TypePong, nil}:
+			default:
+				c.Close()
+				return
+			}
 		case msg.TypePipeReq:
 			go c.createPipe()
 		case msg.TypeAddTunnels:
@@ -220,6 +212,7 @@ func (c *Control) recvLoop() {
 			log.Errorln("recv server error:", body.(*msg.Error).Error())
 			c.Close()
 			return
+		default:
 		}
 	}
 }
@@ -227,12 +220,9 @@ func (c *Control) recvLoop() {
 func (c *Control) writeLoop() {
 	lastWrite := time.Now()
 	for {
-		if c.IsClosed() {
-			return
-		}
 		select {
 		case msgBody := <-c.writeChan:
-			if msgBody.mType == msg.TypePing || msgBody.mType == msg.TypePong {
+			if msgBody.mType == msg.TypePing {
 				if time.Now().Before(lastWrite.Add(time.Duration(cliConf.Health.Interval * int64(time.Second) / 2))) {
 					continue
 				}
@@ -245,7 +235,7 @@ func (c *Control) writeLoop() {
 				c.Close()
 				return
 			}
-		case _ = <-c.die:
+		case _ = <-c.ctx.Done():
 			return
 		}
 	}
@@ -258,11 +248,17 @@ func (c *Control) listenAndStop() {
 	select {
 	case s := <-sigChan:
 		log.WithFields(log.Fields{"signal": s.String(), "client_id": c.ClientID.String()}).Infoln("got signal to stop")
-		c.Close()
-		time.Sleep(time.Millisecond * 300)
+		select {
+		case c.writeChan <- writeReq{msg.TypeExit, nil}:
+		default:
+			os.Exit(1)
+			return
+		}
+		time.Sleep(time.Millisecond * 250)
 		os.Exit(1)
-	case <-c.die:
-		signal.Reset()
+		return
+	case <-c.ctx.Done():
+		signal.Reset(syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
 	}
 }
 
@@ -284,10 +280,11 @@ func (c *Control) Run() {
 			}
 			select {
 			case c.writeChan <- writeReq{msg.TypePing, nil}:
-			case _ = <-c.die:
+			default:
+				c.Close()
 				return
 			}
-		case <-c.die:
+		case <-c.ctx.Done():
 			return
 		}
 	}
