@@ -1,13 +1,17 @@
 package contrib
 
+import (
+	"github.com/longXboy/lunnel/msg"
+)
+
 func InitNotify(notifyUrl string, notifyKey string) error {
 	return nil
 }
 
-func AddMember(domain string, member string) error {
+func AddTunnel(domain string, tunnel msg.Tunnel, clientId string) error {
 	return nil
 }
 
-func RemoveMember(domain string, member string) error {
+func RemoveTunnel(domain string, tunnel msg.Tunnel, clientId string) error {
 	return nil
 }

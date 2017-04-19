@@ -222,7 +222,7 @@ func (c *Control) writeLoop() {
 	for {
 		select {
 		case msgBody := <-c.writeChan:
-			if msgBody.mType == msg.TypePing || msgBody.mType == msg.TypePong {
+			if msgBody.mType == msg.TypePing {
 				if time.Now().Before(lastWrite.Add(time.Duration(cliConf.Health.Interval * int64(time.Second) / 2))) {
 					continue
 				}

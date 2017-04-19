@@ -75,7 +75,7 @@ func (t *Tunnel) Close() {
 		t.listener.Close()
 	}
 	if serverConf.NotifyEnable {
-		err := contrib.RemoveMember(serverConf.ServerDomain, t.tunnelConfig.PublicAddr())
+		err := contrib.RemoveTunnel(serverConf.ServerDomain, t.tunnelConfig, t.ctl.ClientID.String())
 		if err != nil {
 			log.WithFields(log.Fields{"err": err}).Errorln("notify remove member failed!")
 		}
@@ -388,7 +388,7 @@ func (c *Control) writeLoop() {
 	for {
 		select {
 		case msgBody := <-c.writeChan:
-			if msgBody.mType == msg.TypePing || msgBody.mType == msg.TypePong {
+			if msgBody.mType == msg.TypePing {
 				if time.Now().Before(lastWrite.Add(time.Duration(serverConf.Health.Interval * int64(time.Second) / 2))) {
 					continue
 				}
@@ -560,7 +560,7 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
 		sstm.Tunnels[name] = tunnel
 
 		if serverConf.NotifyEnable {
-			err = contrib.AddMember(serverConf.ServerDomain, tunnel.PublicAddr())
+			err = contrib.AddTunnel(serverConf.ServerDomain, tunnel, c.ClientID.String())
 			if err != nil {
 				log.WithFields(log.Fields{"err": err}).Errorln("notify add member failed!")
 			}
