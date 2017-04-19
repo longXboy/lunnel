@@ -19,17 +19,20 @@ import (
 	"github.com/longXboy/smux"
 	"github.com/pkg/errors"
 	"github.com/satori/go.uuid"
+	"golang.org/x/net/context"
 )
 
 func NewControl(conn net.Conn, encryptMode string, transport string, tunnels map[string]msg.Tunnel) *Control {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	ctl := &Control{
 		ctlConn:       conn,
-		die:           make(chan struct{}),
-		toDie:         make(chan struct{}),
 		writeChan:     make(chan writeReq, 64),
 		encryptMode:   encryptMode,
 		tunnels:       tunnels,
 		transportMode: transport,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 	return ctl
 }
@@ -40,6 +43,8 @@ type writeReq struct {
 }
 
 type Control struct {
+	ClientID uuid.UUID
+
 	ctlConn         net.Conn
 	tunnelLock      sync.Mutex
 	tunnels         map[string]msg.Tunnel
@@ -49,31 +54,19 @@ type Control struct {
 	transportMode   string
 	totalPipes      int64
 
-	die       chan struct{}
-	toDie     chan struct{}
 	writeChan chan writeReq
-
-	ClientID uuid.UUID
+	cancel    context.CancelFunc
+	ctx       context.Context
 }
 
 func (c *Control) Close() {
-	c.toDie <- struct{}{}
+	c.cancel()
 	log.WithField("time", time.Now().UnixNano()).Debugln("control closing")
 	return
 }
 
-func (c *Control) isClosed() bool {
-	select {
-	case <-c.die:
-		return true
-	default:
-		return false
-	}
-}
-
 func (c *Control) moderator() {
-	_ = <-c.toDie
-	close(c.die)
+	_ = <-c.ctx.Done()
 	c.ctlConn.Close()
 }
 
@@ -103,7 +96,7 @@ func (c *Control) createPipe() {
 		}
 		stream, err := pipe.AcceptStream()
 		if err != nil {
-			log.WithFields(log.Fields{"err": err, "time": time.Now().Unix()}).Warningln("pipeAcceptStream failed!")
+			log.WithFields(log.Fields{"err": err, "time": time.Now().Unix(), "client_id": c.ClientID}).Warningln("pipeAcceptStream failed!")
 			return
 		}
 		go func() {
@@ -242,7 +235,7 @@ func (c *Control) writeLoop() {
 				c.Close()
 				return
 			}
-		case _ = <-c.die:
+		case _ = <-c.ctx.Done():
 			return
 		}
 	}
@@ -254,10 +247,6 @@ func (c *Control) listenAndStop() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
 	select {
 	case s := <-sigChan:
-		go func() {
-			time.Sleep(time.Millisecond * 250)
-			os.Exit(1)
-		}()
 		log.WithFields(log.Fields{"signal": s.String(), "client_id": c.ClientID.String()}).Infoln("got signal to stop")
 		select {
 		case c.writeChan <- writeReq{msg.TypeExit, nil}:
@@ -265,8 +254,10 @@ func (c *Control) listenAndStop() {
 			os.Exit(1)
 			return
 		}
+		time.Sleep(time.Millisecond * 250)
+		os.Exit(1)
 		return
-	case <-c.die:
+	case <-c.ctx.Done():
 		signal.Reset(syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
 	}
 }
@@ -293,7 +284,7 @@ func (c *Control) Run() {
 				c.Close()
 				return
 			}
-		case <-c.die:
+		case <-c.ctx.Done():
 			return
 		}
 	}

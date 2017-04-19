@@ -40,8 +40,6 @@ func NewControl(conn net.Conn, encryptMode string, enableCompress bool) *Control
 		ctlConn:        conn,
 		pipeGet:        make(chan *smux.Session),
 		pipeAdd:        make(chan *smux.Session),
-		die:            make(chan struct{}),
-		toDie:          make(chan struct{}),
 		writeChan:      make(chan writeReq, 64),
 		encryptMode:    encryptMode,
 		tunnels:        make(map[string]*Tunnel, 0),
@@ -109,8 +107,6 @@ type Control struct {
 	pipeAdd    chan *smux.Session
 	pipeGet    chan *smux.Session
 
-	die       chan struct{}
-	toDie     chan struct{}
 	writeChan chan writeReq
 	cancel    context.CancelFunc
 	ctx       context.Context
@@ -210,7 +206,7 @@ func (c *Control) clean() {
 		if idle.pipe.IsClosed() {
 			c.removeIdleNode(idle)
 		} else if idle.pipe.NumStreams() == 0 && c.idleCount >= maxIdlePipes {
-			log.WithFields(log.Fields{"time": time.Now().Unix(), "pipe": fmt.Sprintf("%p", idle.pipe), "client_id": c.ClientID.String()}).Infoln("remove and close idle")
+			log.WithFields(log.Fields{"time": time.Now().Unix(), "pipe": fmt.Sprintf("%p", idle.pipe), "client_id": c.ClientID.String()}).Debugln("remove and close idle")
 			c.removeIdleNode(idle)
 			atomic.AddInt64(&c.totalPipes, -1)
 			idle.pipe.Close()
@@ -311,22 +307,7 @@ func (c *Control) pipeManage() {
 
 func (c *Control) Close() {
 	c.cancel()
-	/*select {
-	case c.toDie <- struct{}{}:
-		log.WithField("time", time.Now().UnixNano()).Debugln("control closing")
-		return
-	default:
-		return
-	}*/
-}
-
-func (c *Control) isClosed() bool {
-	select {
-	case <-c.die:
-		return true
-	default:
-		return false
-	}
+	log.WithField("clientId", c.ClientID).Debugln("control closing")
 }
 
 func (c *Control) closeTunnels() []*Tunnel {
