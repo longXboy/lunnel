@@ -7,7 +7,7 @@ Lunnel是一款简单易用的内网NAT穿越、反向代理软件，支持http�
 
 2.支持AES、TLS加密，客户端与服务器端建立隧道只需一次密钥交换握手，建立连接速度更快。
 
-3.高性能隧道连接池，保证高并发下的访问通畅。
+3.自建隧道连接池，保证高并发下的访问通畅。
 
 ## QuickStart
 
@@ -47,7 +47,7 @@ Lunnel是一款简单易用的内网NAT穿越、反向代理软件，支持http�
 
 6.通过观察客户端日志，找到远程的访问地址后在浏览器中访问
 
-### 暴露docker的unix socket在外网
+### 为docker daemon配置http访问
 1.修改服务端配置，并在外网启动服务端
 
 2.修改客户端配置:
@@ -64,7 +64,7 @@ Lunnel是一款简单易用的内网NAT穿越、反向代理软件，支持http�
 
 3.在本地启动客户端
 
-4.在浏览器中访问docker.example.com即可通过restful api来控制docker
+4.在浏览器中访问docker.example.com即可通过http api来控制docker
 
 ## Q&A
 

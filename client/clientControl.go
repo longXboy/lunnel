@@ -2,9 +2,12 @@ package client
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -22,7 +25,7 @@ import (
 	"golang.org/x/net/context"
 )
 
-func NewControl(conn net.Conn, encryptMode string, transport string, tunnels map[string]msg.Tunnel) *Control {
+func NewControl(conn net.Conn, encryptMode string, transport string, tunnels map[string]msg.Tunnel, lock *sync.Mutex) *Control {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	ctl := &Control{
@@ -33,6 +36,7 @@ func NewControl(conn net.Conn, encryptMode string, transport string, tunnels map
 		transportMode: transport,
 		ctx:           ctx,
 		cancel:        cancel,
+		tunnelsLock:   lock,
 	}
 	return ctl
 }
@@ -46,7 +50,7 @@ type Control struct {
 	ClientID uuid.UUID
 
 	ctlConn         net.Conn
-	tunnelLock      sync.Mutex
+	tunnelsLock     *sync.Mutex
 	tunnels         map[string]msg.Tunnel
 	preMasterSecret []byte
 	lastRead        uint64
@@ -96,9 +100,9 @@ func (c *Control) createPipe() {
 		}
 		go func() {
 			defer stream.Close()
-			c.tunnelLock.Lock()
+			c.tunnelsLock.Lock()
 			tunnel, isok := c.tunnels[stream.TunnelName()]
-			c.tunnelLock.Unlock()
+			c.tunnelsLock.Unlock()
 			if !isok {
 				log.WithFields(log.Fields{"name": stream.TunnelName()}).Errorln("can't find tunnel by name")
 				return
@@ -161,9 +165,9 @@ func (c *Control) createPipe() {
 
 func (c *Control) SyncTunnels(cstm *msg.AddTunnels) error {
 	for k, v := range cstm.Tunnels {
-		c.tunnelLock.Lock()
+		c.tunnelsLock.Lock()
 		c.tunnels[k] = v
-		c.tunnelLock.Unlock()
+		c.tunnelsLock.Unlock()
 		log.WithFields(log.Fields{"local": v.LocalAddr(), "public": v.PublicAddr()}).Infoln("client sync tunnel complete")
 	}
 	return nil
@@ -241,32 +245,61 @@ func (c *Control) writeLoop() {
 
 }
 
-func (c *Control) listenAndStop() {
-	sigChan := make(chan os.Signal)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
-	select {
-	case s := <-sigChan:
-		log.WithFields(log.Fields{"signal": s.String(), "client_id": c.ClientID.String()}).Infoln("got signal to stop")
-		select {
-		case c.writeChan <- writeReq{msg.TypeExit, nil}:
-		default:
-			os.Exit(1)
-			return
-		}
-		time.Sleep(time.Millisecond * 250)
-		os.Exit(1)
+func (c *Control) AddTunnel(w http.ResponseWriter, r *http.Request) {
+	content, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "req body is empty")
 		return
-	case <-c.ctx.Done():
-		signal.Reset(syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
 	}
+	r.Body.Close()
+
+	var addReq msg.AddTunnels
+	err = json.Unmarshal(content, &addReq)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "unmarshal req body failed")
+		return
+	}
+	if len(addReq.Tunnels) > 0 {
+		c.tunnelsLock.Lock()
+		for k, v := range addReq.Tunnels {
+			c.tunnels[k] = v
+		}
+		c.tunnelsLock.Unlock()
+		c.writeChan <- writeReq{msg.TypeAddTunnels, addReq}
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("ok"))
+}
+
+func (c *Control) serveHttp(lis net.Listener) {
+	m := http.NewServeMux()
+	m.HandleFunc("/tunnel", c.AddTunnel)
+	err := http.Serve(lis, m)
+	log.WithFields(log.Fields{"client_id": c.ClientID, "err": err}).Debugln("close http serve")
+	c.Close()
 }
 
 func (c *Control) Run() {
 	defer c.ctlConn.Close()
 
+	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", "0.0.0.0", cliConf.HttpPort))
+	if err != nil {
+		c.Close()
+		log.WithFields(log.Fields{"port": cliConf.HttpPort, "err": err}).Fatalln("listen manage port failed!")
+		return
+	}
+	defer lis.Close()
+
 	go c.recvLoop()
 	go c.writeLoop()
-	go c.listenAndStop()
+	go c.serveHttp(lis)
+
+	sigChan := make(chan os.Signal)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+	defer signal.Reset(syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
 
 	ticker := time.NewTicker(time.Duration(cliConf.Health.Interval * int64(time.Second)))
 	defer ticker.Stop()
@@ -284,6 +317,17 @@ func (c *Control) Run() {
 				c.Close()
 				return
 			}
+		case s := <-sigChan:
+			log.WithFields(log.Fields{"signal": s.String(), "client_id": c.ClientID.String()}).Infoln("got signal to stop")
+			select {
+			case c.writeChan <- writeReq{msg.TypeExit, nil}:
+			default:
+				os.Exit(1)
+				return
+			}
+			time.Sleep(time.Millisecond * 250)
+			os.Exit(1)
+			return
 		case <-c.ctx.Done():
 			return
 		}

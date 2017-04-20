@@ -65,11 +65,11 @@ func serveManage() {
 }
 
 type tunnelStateReq struct {
-	RemoteAddr string `json:"remote_addr"`
+	RemoteAddr string
 }
 
 type tunnelStateResp struct {
-	Tunnels []string `json:"tunnels"`
+	Tunnels []string
 }
 
 func tunnelQuery(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +79,8 @@ func tunnelQuery(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "req body is empty")
 		return
 	}
-	defer r.Body.Close()
+	r.Body.Close()
+
 	var query tunnelStateReq
 	err = json.Unmarshal(content, &query)
 	if err != nil {
