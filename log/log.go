@@ -57,7 +57,6 @@ func (e *Entry) Warningln(args ...interface{}) {
 		m[k] = fmt.Sprintf("%v", v)
 	}
 
-	raven.CaptureMessage(fmt.Sprintln(args...), m)
 	e.entry.Warningln(args...)
 }
 
@@ -67,7 +66,6 @@ func (e *Entry) Warnln(args ...interface{}) {
 		m[k] = fmt.Sprintf("%v", v)
 	}
 
-	raven.CaptureMessage(fmt.Sprintln(args...), m)
 	e.entry.Warnln(args...)
 }
 

@@ -207,6 +207,10 @@ func (c *Control) recvLoop() {
 			log.Errorln("recv server error:", body.(*msg.Error).Error())
 			c.Close()
 			return
+		case msg.TypeExit:
+			log.WithFields(log.Fields{"type": mType, "client_id": c.ClientID}).Warningln("recv msg to exit!")
+			os.Exit(1)
+			return
 		default:
 		}
 	}

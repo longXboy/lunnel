@@ -411,7 +411,6 @@ func (c *Control) writeLoop() {
 				return
 			}
 		case <-c.ctx.Done():
-			fmt.Println("write done")
 			return
 		}
 	}
@@ -597,7 +596,7 @@ func (c *Control) ServerHandShake() error {
 	}
 	chello = body.(*msg.ControlClientHello)
 	if serverConf.AuthEnable {
-		isok, err := contrib.Auth(chello.AuthToken)
+		isok, err := contrib.Auth(chello)
 		if err != nil {
 			return errors.Wrap(err, "contrib.Auth")
 		}
