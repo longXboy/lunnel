@@ -4,9 +4,9 @@ RUN apk add --update \
   ca-certificates \
   && rm -rf /var/cache/apk/*
 
-copy . /go/src/github.com/longXboy/Lunnel
+copy . /go/src/github.com/longXboy/lunnel
 
-RUN go install github.com/longXboy/Lunnel/cmd/lunnelSer
+RUN go install github.com/longXboy/lunnel/cmd/lunnelSer
 
 ENTRYPOINT ["lunnelSer"]
 CMD ["-c","./config.yml"]
