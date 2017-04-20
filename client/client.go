@@ -18,6 +18,7 @@ import (
 	"github.com/longXboy/lunnel/msg"
 	"github.com/longXboy/lunnel/transport"
 	"github.com/longXboy/lunnel/util"
+	"github.com/longXboy/lunnel/version"
 	"github.com/longXboy/smux"
 	"github.com/satori/go.uuid"
 )
@@ -60,7 +61,7 @@ func dialAndRun(transportMode string) {
 		return
 	}
 	defer conn.Close()
-	chello := msg.ClientHello{EncryptMode: cliConf.EncryptMode, EnableCompress: cliConf.EnableCompress}
+	chello := msg.ClientHello{EncryptMode: cliConf.EncryptMode, EnableCompress: cliConf.EnableCompress, Version: version.Version}
 	err = msg.WriteMsg(conn, msg.TypeClientHello, chello)
 	if err != nil {
 		log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("write ControlClientHello failed!")
@@ -142,7 +143,7 @@ func dialAndRun(transportMode string) {
 		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientHandShake failed!")
 		return
 	}
-	log.WithFields(log.Fields{"client_id": ctl.ClientID.String()}).Infoln("server handshake success!")
+	log.WithFields(log.Fields{"client_id": ctl.ClientID.String(), "version": version.Version}).Infoln("server handshake success!")
 	err = ctl.ClientAddTunnels()
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientSyncTunnels failed!")

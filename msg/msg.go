@@ -37,6 +37,7 @@ func (e *Error) Error() string {
 type ClientHello struct {
 	EncryptMode    string
 	EnableCompress bool
+	Version        string
 }
 
 type ControlClientHello struct {

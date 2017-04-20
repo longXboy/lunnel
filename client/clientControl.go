@@ -65,11 +65,6 @@ func (c *Control) Close() {
 	return
 }
 
-func (c *Control) moderator() {
-	_ = <-c.ctx.Done()
-	c.ctlConn.Close()
-}
-
 func (c *Control) createPipe() {
 	log.WithFields(log.Fields{"time": time.Now().Unix(), "pipe_count": atomic.LoadInt64(&c.totalPipes)}).Debugln("create pipe to server!")
 	pipeConn, err := transport.CreateConn(cliConf.ServerAddr, c.transportMode, cliConf.HttpProxy)
@@ -263,7 +258,8 @@ func (c *Control) listenAndStop() {
 }
 
 func (c *Control) Run() {
-	go c.moderator()
+	defer c.ctlConn.Close()
+
 	go c.recvLoop()
 	go c.writeLoop()
 	go c.listenAndStop()

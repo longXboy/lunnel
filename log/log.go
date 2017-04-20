@@ -96,10 +96,8 @@ func Fatalln(args ...interface{}) {
 }
 
 func Warnln(args ...interface{}) {
-	raven.CaptureMessage(fmt.Sprintln(args...), nil)
 	logrus.Warnln(args...)
 }
 func Warningln(args ...interface{}) {
-	raven.CaptureMessage(fmt.Sprintln(args...), nil)
 	logrus.Warningln(args...)
 }

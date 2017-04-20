@@ -306,14 +306,14 @@ func newTlsConfig() (*tls.Config, error) {
 }
 
 func handleControl(conn net.Conn, cch *msg.ClientHello) {
-	ctl := NewControl(conn, cch.EncryptMode, cch.EnableCompress)
+	ctl := NewControl(conn, cch.EncryptMode, cch.EnableCompress, cch.Version)
 	err := ctl.ServerHandShake()
 	if err != nil {
 		conn.Close()
 		log.WithFields(log.Fields{"err": err, "client_id": ctl.ClientID.String()}).Errorln("ctl.ServerHandShake failed!")
 		return
 	}
-	log.WithFields(log.Fields{"client_id": ctl.ClientID.String(), "encrypt_mode": ctl.encryptMode, "enableCompress": ctl.enableCompress}).Infoln("client handshake success!")
+	log.WithFields(log.Fields{"client_id": ctl.ClientID.String(), "encrypt_mode": ctl.encryptMode, "enableCompress": ctl.enableCompress, "version": cch.Version}).Infoln("client handshake success!")
 	ctl.Serve()
 }
 
