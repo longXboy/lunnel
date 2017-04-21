@@ -1,11 +1,11 @@
-server_addr: 127.0.0.1:8080
+server_addr: 192.168.0.107:8085
 tunnels: 
   2048: 
-    local: http://127.0.0.1:32768
+    local: http://127.0.0.1:32769
     http_host_rewrite: www.2048.com
   2048_tcp: 
     schema: tcp
-    local: http://127.0.0.1:32768
+    local: http://127.0.0.1:32769
   docker: 
     schema: http
     host: docker.example.com

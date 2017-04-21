@@ -1,3 +1,17 @@
+// Copyright 2017 longXboy, longxboyhi@gmail.com
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package server
 
 import (
@@ -226,15 +240,17 @@ func handleHttpsConn(conn net.Conn) {
 	TunnelMapLock.RLock()
 	tunnel, isok := TunnelMap[fmt.Sprintf("https://%s:%d", info["Host"], serverConf.HttpsPort)]
 	TunnelMapLock.RUnlock()
+	tlsConfig, err := newTlsConfig()
+	if err != nil {
+		log.Errorln("server error cert")
+		return
+	}
+	tlsConn := tls.Server(sconn, tlsConfig)
 	if isok {
-		tlsConfig, err := newTlsConfig()
-		if err != nil {
-			log.Errorln("server error cert")
-			return
-		}
-		tlsConn := tls.Server(sconn, tlsConfig)
 		conn.SetDeadline(time.Time{})
 		proxyConn(tlsConn, tunnel.ctl, tunnel.name)
+	} else {
+		tlsConn.Write([]byte(vhost.BadGateWayResp()))
 	}
 }
 
@@ -275,6 +291,8 @@ func handleHttpConn(conn net.Conn) {
 		}
 		conn.SetDeadline(time.Time{})
 		proxyConn(sconn, tunnel.ctl, tunnel.name)
+	} else {
+		sconn.Write([]byte(vhost.BadGateWayResp()))
 	}
 }
 

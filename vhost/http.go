@@ -12,20 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package contrib
+package vhost
 
 import (
-	"github.com/longXboy/lunnel/msg"
+	"fmt"
+	"time"
+
+	"github.com/longXboy/lunnel/version"
 )
 
-func InitNotify(notifyUrl string, notifyKey string) error {
-	return nil
-}
+const badGateWayTemplate string = "HTTP/1.1 502 Bad Gateway\r\nServer: lunnel/%s\r\nDate: %s\r\nContent-Length: 35\r\n\r\nBad GateWay: proxy_tunnel_not_found"
 
-func AddTunnel(domain string, tunnel msg.Tunnel, clientId string) error {
-	return nil
-}
-
-func RemoveTunnel(domain string, tunnel msg.Tunnel, clientId string) error {
-	return nil
+func BadGateWayResp() string {
+	return fmt.Sprintf(badGateWayTemplate, version.Version, time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT"))
 }
