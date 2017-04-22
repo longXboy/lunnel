@@ -8,13 +8,13 @@ tunnels:
     #客户端代理的本地地址
     local: http://127.0.0.1:32768
     #外网公开访问的地址，当服务器中已经存在相同的host，则会报错(如果不填写则由服务器端自动分配)
-	host: 2048.example.com
+    host: 2048.example.com
     #将http request中host字段替换成该字段的值
     http_host_rewrite: www.2048.com
   2048_tcp:
     schema: tcp
-	#当协议是tcp或udp时可以指定外网访问端口，如果端口已存在，则会报错
-	port: 33333
+    #当协议是tcp或udp时可以指定外网访问端口，如果端口已存在，则会报错
+    port: 33333
     local: http://127.0.0.1:32768
   2048_https:
     schema: https
