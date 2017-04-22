@@ -22,7 +22,7 @@ Lunnel是一款简单易用的内网NAT穿越、反向代理软件，支持http�
     cert: ./example.crt
     key: ./example.key
   ```
-2.在启动服务端程序:
+2.在公网启动服务端程序:
    `sudo ./lunnelSer -c ./config.yml`
 
 3.修改客户端配置并保存:
