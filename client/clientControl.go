@@ -181,7 +181,7 @@ func (c *Control) SyncTunnels(cstm *msg.AddTunnels) error {
 	for k, v := range cstm.Tunnels {
 		c.tunnelsLock.Lock()
 		t, isok := c.tunnels[k]
-		if !isok || t.HttpHostRewrite != v.HttpHostRewrite || t.LocalAddr() != v.LocalAddr() {
+		if !isok || t.HttpHostRewrite != v.HttpHostRewrite || t.LocalAddr() != v.LocalAddr() || t.Public.Schema != v.Public.Schema {
 			c.tunnels[k] = v
 		}
 		c.tunnelsLock.Unlock()
@@ -302,10 +302,10 @@ func (c *Control) serveHttp(lis net.Listener) {
 func (c *Control) Run() {
 	defer c.ctlConn.Close()
 
-	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", "0.0.0.0", cliConf.HttpPort))
+	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", "0.0.0.0", cliConf.ManagePort))
 	if err != nil {
 		c.Close()
-		log.WithFields(log.Fields{"port": cliConf.HttpPort, "err": err}).Fatalln("listen manage port failed!")
+		log.WithFields(log.Fields{"port": cliConf.ManagePort, "err": err}).Fatalln("listen manage port failed!")
 		return
 	}
 	defer lis.Close()

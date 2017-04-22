@@ -74,7 +74,7 @@ type Config struct {
 	Durable        bool   `yaml:"durable,omitempty"`
 	DurableFile    string `yaml:"durable_file,omitempty"`
 	Health         Health `yaml:"health,omitempty"`
-	HttpPort       uint16 `yaml:"http_port,omitempty"`
+	ManagePort     uint16 `yaml:"manage_port,omitempty"`
 }
 
 var cliConf Config
@@ -180,8 +180,8 @@ func LoadConfig(configFile string) error {
 	if cliConf.Health.TimeOut == 0 {
 		cliConf.Health.TimeOut = 50
 	}
-	if cliConf.HttpPort == 0 {
-		cliConf.HttpPort = 8082
+	if cliConf.ManagePort == 0 {
+		cliConf.ManagePort = 8082
 	}
 	return nil
 }

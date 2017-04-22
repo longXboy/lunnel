@@ -1,0 +1,29 @@
+#服务器域名，为代理隧道自动分配公开访问地址时使用
+server_domain: example.com
+#指定监听的ip
+ip: 127.0.0.1
+#监听的端口
+port: 8080
+#对外提供公开访问的http端口
+http_port: 80
+#对外提供公开访问的https端口
+https_port: 443
+#http管理端口，可以用来实时查询代理隧道信息
+manage_port: 8081
+aes:
+  #aes密钥
+  secret_key: password
+tls:
+  #tls公钥
+  cert: ./example.crt
+  #tls私钥
+  key: ./example.key
+#是否开启DEBUG日志模式
+debug: true
+#日志地址，不填写的话则默认输出至stdout\stderr
+log_file: ./client.log
+health:
+  #心跳周期，单位秒
+  interval: 15
+  #心跳超时时间，单位秒
+  timeout: 40

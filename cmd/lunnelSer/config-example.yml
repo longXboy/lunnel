@@ -1,5 +1,5 @@
 server_domain: example.com
-port: 8085
+port: 8080
 aes:
   secret_key: password
 tls:
