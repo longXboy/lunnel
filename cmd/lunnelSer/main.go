@@ -14,8 +14,33 @@
 
 package main
 
-import "github.com/longXboy/lunnel/server"
+import (
+	"flag"
+	"io/ioutil"
+	"log"
+	"strings"
+
+	"github.com/longXboy/lunnel/server"
+)
 
 func main() {
-	server.Main()
+	configFile := flag.String("c", "./config.yml", "path of config file")
+	flag.Parse()
+	var configDetail []byte
+	var err error
+	configType := ""
+	if *configFile != "" {
+		configDetail, err = ioutil.ReadFile(*configFile)
+		if err != nil {
+			log.Fatalf("read configfile failed!err:=%v\n", err)
+			return
+		}
+		if strings.HasSuffix(*configFile, "json") {
+			configType = "json"
+		} else {
+			configType = "yaml"
+		}
+	}
+
+	server.Main(configDetail, configType)
 }

@@ -17,7 +17,6 @@ package server
 import (
 	"crypto/tls"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -37,10 +36,8 @@ import (
 	"github.com/longXboy/smux"
 )
 
-func Main() {
-	configFile := flag.String("c", "./config.yml", "path of config file")
-	flag.Parse()
-	err := LoadConfig(*configFile)
+func Main(configDetail []byte, configType string) {
+	err := LoadConfig(configDetail, configType)
 	if err != nil {
 		rawLog.Fatalf("load config failed!err:=%v", err)
 	}

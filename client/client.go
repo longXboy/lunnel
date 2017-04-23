@@ -18,7 +18,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -154,10 +153,8 @@ func dialAndRun(transportMode string) {
 	ctl.Run()
 }
 
-func Main() {
-	configFile := flag.String("c", "./config.yml", "path of config file")
-	flag.Parse()
-	err := LoadConfig(*configFile)
+func Main(configDetail []byte, configType string) {
+	err := LoadConfig(configDetail, configType)
 	if err != nil {
 		rawLog.Fatalf("load config failed!err:=%v", err)
 	}

@@ -17,8 +17,6 @@ package server
 import (
 	"crypto/sha1"
 	"encoding/json"
-	"io/ioutil"
-	"strings"
 
 	"github.com/longXboy/lunnel/log"
 	"github.com/pkg/errors"
@@ -62,19 +60,16 @@ type Config struct {
 
 var serverConf Config
 
-func LoadConfig(configFile string) error {
-	if configFile != "" {
-		content, err := ioutil.ReadFile(configFile)
-		if err != nil {
-			return errors.Wrap(err, "read config file")
-		}
-		if strings.HasSuffix(configFile, "json") {
-			err = json.Unmarshal(content, &serverConf)
+func LoadConfig(configDetail []byte, configType string) error {
+	var err error
+	if len(configDetail) > 0 {
+		if configType == "json" {
+			err = json.Unmarshal(configDetail, &serverConf)
 			if err != nil {
 				return errors.Wrap(err, "unmarshal config file using json decode")
 			}
 		} else {
-			err = yaml.Unmarshal(content, &serverConf)
+			err = yaml.Unmarshal(configDetail, &serverConf)
 			if err != nil {
 				return errors.Wrap(err, "unmarshal config file using yaml decode")
 			}

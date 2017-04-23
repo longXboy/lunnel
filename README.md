@@ -1,5 +1,5 @@
 # Lunnel
-Lunnel 是一款简单易用的内网NAT穿越、反向代理软件，支持 http, https, udp, tcp、unix socket 等协议。
+lunnel 是一款简单易用的内网NAT穿越、反向代理软件，支持 HTTP, HTTPS, UDP, TCP、Unix socket 协议。
 
 ## Feature
 
@@ -9,7 +9,7 @@ Lunnel 是一款简单易用的内网NAT穿越、反向代理软件，支持 htt
 
 ## QuickStart
 
-### 为 docker daemon 配置 http api 访问
+### 为 docker daemon 配置 HTTP API 访问
 
 1. 修改服务端配置：
 
@@ -64,21 +64,21 @@ server_name:  example.com
 
 ## Q&A
 
-> **Q: 在示例配置中客户端使用的是 tls 加密方式，需要 CA 签发的 SSL 证书，如果没有的话怎么办?**
-> <br>**A: 可以使用 openssl 自签名证书，请参考：[基于 OpenSSL 自建 CA 和颁发 SSL 证书](http://seanlook.com/2015/01/18/openssl-self-sign-ca/)、[openssl 生成 ssl 证书](http://blog.sina.com.cn/s/blog_4fd50c390101891c.html)；<br>或者您也可以在客户端以及服务端配置文件中指定 `aes.secret_key` 从而使用 aes 加密。**
+> **Q: 在示例配置中客户端使用的是 TLS 加密方式，需要 CA 签发的 SSL 证书，如果没有的话怎么办?**
+> <br>**A: 可以使用 OpenSSL 自签名证书，请参考：[基于 OpenSSL 自建 CA 和颁发 SSL 证书](http://seanlook.com/2015/01/18/openssl-self-sign-ca/)、[OpenSSL 生成 SSL 证书](http://blog.sina.com.cn/s/blog_4fd50c390101891c.html)；<br>或者您也可以在客户端以及服务端配置文件中指定 `aes.secret_key` 从而使用 aes 加密。**
 
 > **Q: 启动程序的时候为何报错 `found character that cannot start any token`？**
 > <br>**A: YAML 格式的配置文件每一行的开头不允许出现 tab 字符，请将所有的 tab 换成空格。**
 
-## 完整配置说明
+## Config Reference
 
-- [客户端配置](https://github.com/longXboy/lunnel/blob/master/cmd/lunnelCli/config-full-example.yml)
-- [服务端配置](https://github.com/longXboy/lunnel/blob/master/cmd/lunnelSer/config-full-example.yml)
+- [客户端配置说明](https://github.com/longXboy/lunnel/blob/master/cmd/lunnelCli/config-full-example.yml)
+- [服务端配置说明](https://github.com/longXboy/lunnel/blob/master/cmd/lunnelSer/config-full-example.yml)
 
 ## TODO
 
 - [x] 持久化客户端获得的远公开访问地址，不再因为暂时失联而重新分配公开访问地址
-- [x] 使用 http api 实时修改客户端的代理隧道支持，不需要重启客户端
+- [x] 使用 HTTP API 实时修改客户端的代理隧道支持，不需要重启客户端
 - [ ] 优化隧道连接池算法
 - [ ] 底层传输协议支持 QUIC
-- [ ] 提供 dashboard 管理界面，开放 http 接口
+- [ ] 提供 Dashboard 管理界面，开放 HTTP 接口

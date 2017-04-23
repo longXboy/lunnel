@@ -505,7 +505,7 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
 		}
 
 		if tunnel.Public.Schema == "tcp" || tunnel.Public.Schema == "udp" {
-			if tunnel.Public.Port == 0 && oldTunnel != nil && tunnel.Public.Schema == oldTunnel.tunnelConfig.Public.Schema {
+			if tunnel.Public.Port == 0 && oldTunnel != nil && tunnel.Public.Schema == oldTunnel.tunnelConfig.Public.Schema && tunnel.LocalAddr() == oldTunnel.tunnelConfig.LocalAddr() {
 				tunnel.Public.AllowReallocate = true
 				tunnel.Public.Port = oldTunnel.tunnelConfig.Public.Port
 			}
@@ -541,7 +541,7 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
 			tunnel.Public.Host = serverConf.ServerDomain
 		} else if tunnel.Public.Schema == "http" || tunnel.Public.Schema == "https" {
 			if tunnel.Public.Host == "" {
-				if oldTunnel != nil && tunnel.Public.Schema == oldTunnel.tunnelConfig.Public.Schema {
+				if oldTunnel != nil && tunnel.Public.Schema == oldTunnel.tunnelConfig.Public.Schema && tunnel.LocalAddr() == oldTunnel.tunnelConfig.LocalAddr() {
 					tunnel.Public.AllowReallocate = true
 					tunnel.Public.Host = oldTunnel.tunnelConfig.Public.Host
 				} else {
