@@ -170,8 +170,15 @@ func Main(configDetail []byte, configType string) {
 		log.Init(cliConf.Debug, nil)
 	}
 	raven.SetDSN(cliConf.DSN)
-
-	if cliConf.Durable && cliConf.DurableFile != "" {
+	if cliConf.ClientId != "" {
+		u, err := uuid.FromString(string(cliConf.ClientId))
+		if err != nil {
+			log.WithFields(log.Fields{"err": err, "cliConf.ClientId": string(cliConf.ClientId)}).Errorln("unmarshal cliConf.ClientId failed!")
+			return
+		} else {
+			clientId = &u
+		}
+	} else if cliConf.Durable && cliConf.DurableFile != "" {
 		idFile, err := os.OpenFile(cliConf.DurableFile, os.O_RDONLY|os.O_CREATE, os.ModePerm)
 		if err != nil {
 			rawLog.Fatalf("open log file %s failed!err:=%v\n", cliConf.DurableFile, err)

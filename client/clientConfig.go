@@ -50,8 +50,9 @@ type Health struct {
 }
 
 type Config struct {
-	Debug   bool   `yaml:"debug,omitempty"`
-	LogFile string `yaml:"log_file,omitempty"`
+	Debug    bool   `yaml:"debug,omitempty"`
+	LogFile  string `yaml:"log_file,omitempty"`
+	ClientId string `yaml:"id,omitempty"`
 	//if EncryptMode is tls and ServerName is empty,ServerAddr can't be IP format
 	ServerAddr  string `yaml:"server_addr"`
 	Aes         Aes    `yaml:"aes,omitempty"`
