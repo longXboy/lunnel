@@ -213,6 +213,7 @@ func (c *Control) recvLoop() {
 		atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 		switch mType {
 		case msg.TypePong:
+			log.Infoln("recv pong")
 		case msg.TypePing:
 			select {
 			case c.writeChan <- writeReq{msg.TypePong, nil}:
