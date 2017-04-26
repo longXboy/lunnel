@@ -34,8 +34,8 @@ import (
 	"golang.org/x/net/context"
 )
 
-var maxIdlePipes int = 2
-var maxStreams int = 6
+var maxIdlePipes uint64
+var maxStreams uint64
 
 var cleanInterval time.Duration = time.Second * 60
 
@@ -119,7 +119,7 @@ type Control struct {
 	tunnelLock *sync.Mutex
 
 	busyPipes  *pipeNode
-	idleCount  int
+	idleCount  uint64
 	idlePipes  *pipeNode
 	totalPipes int64
 	pipeAdd    chan *smux.Session
@@ -208,7 +208,7 @@ func (c *Control) clean() {
 		}
 		if busy.pipe.IsClosed() {
 			c.removeBusyNode(busy)
-		} else if busy.pipe.NumStreams() < maxStreams {
+		} else if uint64(busy.pipe.NumStreams()) < maxStreams {
 			c.removeBusyNode(busy)
 			c.addIdlePipe(busy.pipe)
 		}
@@ -281,7 +281,7 @@ func (c *Control) pipeManage() {
 							}
 						case p := <-c.pipeAdd:
 							if !p.IsClosed() {
-								if p.NumStreams() < maxStreams {
+								if uint64(p.NumStreams()) < maxStreams {
 									available = p
 									goto Available
 								} else {
@@ -310,7 +310,7 @@ func (c *Control) pipeManage() {
 			available = nil
 		case p := <-c.pipeAdd:
 			if !p.IsClosed() {
-				if p.NumStreams() < maxStreams {
+				if uint64(p.NumStreams()) < maxStreams {
 					c.addIdlePipe(p)
 				} else {
 					c.addBusyPipe(p)

@@ -15,7 +15,6 @@
 package kcp
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -45,7 +44,6 @@ func Test_sockBuf(t *testing.T) {
 			errChan <- errors.Wrapf(err, "server read conn failed")
 			return
 		}
-		fmt.Println("server read:", string(b))
 		if nRead != 64 {
 			errChan <- errors.Wrapf(err, "server read size not equal 64")
 			return
@@ -62,7 +60,7 @@ func Test_sockBuf(t *testing.T) {
 			errChan <- errors.Wrapf(err, "server write size not equal 64")
 			return
 		}
-		time.Sleep(time.Second)
+		time.Sleep(time.Millisecond * 20)
 	}()
 	go func() {
 		conn, err := Dial("127.0.0.1:8088")
@@ -100,5 +98,5 @@ func Test_sockBuf(t *testing.T) {
 		t.Error(err)
 		break
 	}
-	time.Sleep(time.Second * 2)
+	time.Sleep(time.Millisecond * 20)
 }

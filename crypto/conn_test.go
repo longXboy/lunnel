@@ -20,11 +20,11 @@ import (
 )
 
 func Test_aesEncryptDecrypt(t *testing.T) {
-	blocken, err := NewCryptoConn(nil, []byte("0123456789abcdef"))
+	blocken, err := NewCryptoStream(nil, []byte("0123456789abcdef"))
 	if err != nil {
 		t.Errorf("NewAESBlockCrypt error:", err)
 	}
-	blockde, err := NewCryptoConn(nil, []byte("0123456789abcdef"))
+	blockde, err := NewCryptoStream(nil, []byte("0123456789abcdef"))
 	if err != nil {
 		t.Errorf("NewAESBlockCrypt error:", err)
 	}

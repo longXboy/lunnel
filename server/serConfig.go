@@ -17,6 +17,7 @@ package server
 import (
 	"crypto/sha1"
 	"encoding/json"
+	"strconv"
 
 	"github.com/longXboy/lunnel/log"
 	"github.com/pkg/errors"
@@ -56,6 +57,8 @@ type Config struct {
 	NotifyKey    string `yaml:"notify_key,omitempty"`
 	DSN          string `yaml:"dsn,omitempty"`
 	Health       Health `yaml:"health,omitempty"`
+	MaxIdlePipes string `yaml:"max_idle_pipes,omitempty"`
+	MaxStreams   string `yaml:"max_streams,omitempty"`
 }
 
 var serverConf Config
@@ -108,5 +111,22 @@ func LoadConfig(configDetail []byte, configType string) error {
 	if serverConf.Health.TimeOut == 0 {
 		serverConf.Health.TimeOut = 50
 	}
+	if serverConf.MaxIdlePipes == "" {
+		serverConf.MaxIdlePipes = "5"
+	} else {
+		_, err := strconv.ParseUint(serverConf.MaxIdlePipes, 10, 64)
+		if err != nil {
+			log.Fatalln("max_idle_pipes must be an unsigned integer")
+		}
+	}
+	if serverConf.MaxStreams == "" {
+		serverConf.MaxStreams = "6"
+	} else {
+		_, err := strconv.ParseUint(serverConf.MaxStreams, 10, 64)
+		if err != nil {
+			log.Fatalln("max_streams must be an unsigned integer")
+		}
+	}
+
 	return nil
 }

@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/getsentry/raven-go"
@@ -58,6 +59,14 @@ func Main(configDetail []byte, configType string) {
 	}
 	if serverConf.NotifyEnable {
 		contrib.InitNotify(serverConf.NotifyUrl, serverConf.NotifyKey)
+	}
+	maxIdlePipes, err = strconv.ParseUint(serverConf.MaxIdlePipes, 10, 64)
+	if err != nil {
+		log.Fatalln("max_idle_pipes must be unsigned integer")
+	}
+	maxStreams, err = strconv.ParseUint(serverConf.MaxStreams, 10, 64)
+	if err != nil {
+		log.Fatalln("max_idle_pipes must be unsigned integer")
 	}
 
 	go serveHttp(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpPort))

@@ -7,4 +7,5 @@ cmd/lunnelCli/config.yml
 cmd/lunnelCli/lunnel.id
 cmd/lunnelSer/config2.yml
 cmd/lunnelCli/config2.yml
+bin/
 
