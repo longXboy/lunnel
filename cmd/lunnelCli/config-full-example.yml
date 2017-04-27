@@ -3,9 +3,9 @@ server_addr: 127.0.0.1:8080
 tunnels:
   #代理隧道的名字，必须唯一不可重复
   2048:
-    #外网访问使用的协议，可以是http、https、tcp、udp
+    #外网访问时使用的协议，可以是http、https、tcp、udp
     schema: http
-    #客户端代理的本地地址
+    #需要客户端代理的本地连接地址
     local: http://127.0.0.1:32768
     #外网公开访问的地址，当服务器中已经存在相同的host，则会报错(如果不填写则由服务器端自动分配)
     host: 2048.example.com
@@ -18,7 +18,12 @@ tunnels:
     local: http://127.0.0.1:32768
   2048_https:
     schema: https
-    local: http://127.0.0.1:32768
+    local: https://2048.example:443
+  2048_https_to_http:
+    schema: http
+	#当需要把本地的https转换为外网http访问时，并且本地https证书过期或非法的时候可以设置https_skip_verify为true
+	https_skip_verify: true
+    local: https://2048.example:443
   docker:
     schema: http
     local: unix:///var/run/docker.sock

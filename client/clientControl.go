@@ -61,16 +61,20 @@ type writeReq struct {
 }
 
 type Control struct {
+	// To work on both ARM and x86-32,
+	// these two fields must be the first elements to keep 64-bit
+	// alignment for atomic access to the fields.
+	lastRead   uint64
+	totalPipes int64
+
 	ClientID uuid.UUID
 
 	ctlConn         net.Conn
 	tunnelsLock     *sync.Mutex
 	tunnels         map[string]msg.Tunnel
 	preMasterSecret []byte
-	lastRead        uint64
 	encryptMode     string
 	transportMode   string
-	totalPipes      int64
 
 	writeChan chan writeReq
 	cancel    context.CancelFunc
@@ -84,6 +88,8 @@ func (c *Control) Close() {
 }
 
 func (c *Control) createPipe() {
+	defer log.CapturePanic()
+
 	log.WithFields(log.Fields{"time": time.Now().Unix(), "pipe_count": atomic.LoadInt64(&c.totalPipes)}).Debugln("create pipe to server!")
 	pipeConn, err := transport.CreateConn(cliConf.ServerAddr, c.transportMode, cliConf.HttpProxy)
 	if err != nil {
@@ -113,6 +119,8 @@ func (c *Control) createPipe() {
 			return
 		}
 		go func() {
+			defer log.CapturePanic()
+
 			defer stream.Close()
 			c.tunnelsLock.Lock()
 			tunnel, isok := c.tunnels[stream.TunnelName()]
@@ -136,8 +144,8 @@ func (c *Control) createPipe() {
 					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr()}).Warningln("pipe dial local failed!")
 					return
 				}
-				if tunnel.Local.Schema == "https" {
-					conn = tls.Client(conn, &tls.Config{InsecureSkipVerify: true})
+				if tunnel.Public.Schema == "http" && tunnel.Local.Schema == "https" {
+					conn = tls.Client(conn, &tls.Config{InsecureSkipVerify: tunnel.Local.InsecureSkipVerify, ServerName: tunnel.Local.Host})
 				}
 			} else if tunnel.Local.Schema == "unix" {
 				conn, err = net.Dial("unix", tunnel.Local.Host)
@@ -201,6 +209,8 @@ func (c *Control) ClientAddTunnels() error {
 }
 
 func (c *Control) recvLoop() {
+	defer log.CapturePanic()
+
 	atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 	for {
 		mType, body, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
@@ -239,6 +249,8 @@ func (c *Control) recvLoop() {
 }
 
 func (c *Control) writeLoop() {
+	defer log.CapturePanic()
+
 	lastWrite := time.Now()
 	for {
 		select {
@@ -293,6 +305,8 @@ func (c *Control) AddTunnel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *Control) serveHttp(lis net.Listener) {
+	defer log.CapturePanic()
+
 	m := http.NewServeMux()
 	m.HandleFunc("/tunnel", c.AddTunnel)
 	err := http.Serve(lis, m)

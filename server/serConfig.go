@@ -112,7 +112,7 @@ func LoadConfig(configDetail []byte, configType string) error {
 		serverConf.Health.TimeOut = 50
 	}
 	if serverConf.MaxIdlePipes == "" {
-		serverConf.MaxIdlePipes = "5"
+		serverConf.MaxIdlePipes = "4"
 	} else {
 		_, err := strconv.ParseUint(serverConf.MaxIdlePipes, 10, 64)
 		if err != nil {

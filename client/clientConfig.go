@@ -42,6 +42,7 @@ type TunnelConfig struct {
 	Port            uint16 `yaml:"port,omitempty"`
 	LocalAddr       string `yaml:"local,omitempty"`
 	HttpHostRewrite string `yaml:"http_host_rewrite,omitempty"`
+	HttpsSkipVerify bool   `yaml:"https_skip_verify,omitempty"`
 }
 
 type Health struct {
