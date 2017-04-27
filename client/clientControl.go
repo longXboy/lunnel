@@ -61,16 +61,21 @@ type writeReq struct {
 }
 
 type Control struct {
+	// To work on both ARM and x86-32,
+	// these two fields must be the first elements to keep 64-bit
+	// alignment for atomic access to the fields.
+	lastRead        uint64
+	totalPipes      int64
+	
 	ClientID uuid.UUID
 
 	ctlConn         net.Conn
 	tunnelsLock     *sync.Mutex
 	tunnels         map[string]msg.Tunnel
 	preMasterSecret []byte
-	lastRead        uint64
 	encryptMode     string
 	transportMode   string
-	totalPipes      int64
+
 
 	writeChan chan writeReq
 	cancel    context.CancelFunc
