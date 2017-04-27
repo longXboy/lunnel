@@ -64,9 +64,9 @@ type Control struct {
 	// To work on both ARM and x86-32,
 	// these two fields must be the first elements to keep 64-bit
 	// alignment for atomic access to the fields.
-	lastRead        uint64
-	totalPipes      int64
-	
+	lastRead   uint64
+	totalPipes int64
+
 	ClientID uuid.UUID
 
 	ctlConn         net.Conn
@@ -75,7 +75,6 @@ type Control struct {
 	preMasterSecret []byte
 	encryptMode     string
 	transportMode   string
-
 
 	writeChan chan writeReq
 	cancel    context.CancelFunc
@@ -145,8 +144,8 @@ func (c *Control) createPipe() {
 					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr()}).Warningln("pipe dial local failed!")
 					return
 				}
-				if tunnel.Local.Schema == "https" {
-					conn = tls.Client(conn, &tls.Config{InsecureSkipVerify: true})
+				if tunnel.Public.Schema == "http" && tunnel.Local.Schema == "https" {
+					conn = tls.Client(conn, &tls.Config{InsecureSkipVerify: tunnel.Local.InsecureSkipVerify, ServerName: tunnel.Local.Host})
 				}
 			} else if tunnel.Local.Schema == "unix" {
 				conn, err = net.Dial("unix", tunnel.Local.Host)

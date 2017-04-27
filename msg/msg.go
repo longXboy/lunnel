@@ -78,9 +78,10 @@ type Public struct {
 }
 
 type Local struct {
-	Schema string
-	Host   string
-	Port   uint16
+	Schema             string
+	Host               string
+	Port               uint16
+	InsecureSkipVerify bool
 }
 
 type Tunnel struct {

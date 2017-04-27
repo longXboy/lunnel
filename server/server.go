@@ -70,10 +70,8 @@ func Main(configDetail []byte, configType string) {
 	go serveHttps(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpsPort))
 	go listenAndServe("kcp")
 	go listenAndServe("tcp")
-	go serveManage()
 
-	wait := make(chan struct{})
-	<-wait
+	listenAndServeManage()
 }
 
 func listenAndServe(transportMode string) {
@@ -190,17 +188,15 @@ func handleHttpsConn(conn net.Conn) {
 	TunnelMapLock.RLock()
 	tunnel, isok := TunnelMap[fmt.Sprintf("https://%s:%d", info["Host"], serverConf.HttpsPort)]
 	TunnelMapLock.RUnlock()
-	tlsConfig, err := newTlsConfig()
+	/*tlsConfig, err := newTlsConfig()
 	if err != nil {
 		log.Errorln("server error cert")
 		return
 	}
-	tlsConn := tls.Server(sconn, tlsConfig)
+	tlsConn := tls.Server(sconn, tlsConfig)*/
 	if isok {
 		conn.SetDeadline(time.Time{})
-		proxyConn(tlsConn, tunnel.ctl, tunnel.name)
-	} else {
-		tlsConn.Write([]byte(vhost.BadGateWayResp()))
+		proxyConn(sconn, tunnel.ctl, tunnel.name)
 	}
 }
 

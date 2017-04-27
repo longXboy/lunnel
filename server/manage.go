@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"sync/atomic"
 
+	"github.com/longXboy/lunnel/log"
 	"github.com/longXboy/lunnel/msg"
 	"github.com/satori/go.uuid"
 	"gopkg.in/gin-gonic/gin.v1"
@@ -51,13 +52,13 @@ type clientsStateResp struct {
 	Clients []clientState
 }
 
-func serveManage() {
-	r := gin.New()
+func listenAndServeManage() {
 	if serverConf.Debug {
 		gin.SetMode("debug")
 	} else {
 		gin.SetMode("release")
 	}
+	r := gin.New()
 
 	r.GET("/v1/tunnels", tunnelsQuery)
 	r.POST("/v1/tunnel", tunnelQuery)
@@ -65,9 +66,12 @@ func serveManage() {
 	r.GET("/v1/clients", clientsQuery)
 	r.GET("/v1/clients/clientId", clientQuery)
 
-	r.Run(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ManagePort))
+	log.WithFields(log.Fields{"addr": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ManagePort)}).Infoln("start to listen and serve manage")
 
-	http.ListenAndServe(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ManagePort), nil)
+	err := r.Run(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ManagePort))
+	if err != nil {
+		log.WithFields(log.Fields{"addr": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ManagePort), "err": err.Error()}).Infoln("listen and serve manage failed!")
+	}
 }
 
 func tunnelQuery(c *gin.Context) {

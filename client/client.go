@@ -213,6 +213,7 @@ func Main(configDetail []byte, configType string) {
 		tunnel.HttpHostRewrite = tc.HttpHostRewrite
 		tunnel.Local.Schema = localSchema
 		tunnel.Local.Host = localHost
+		tunnel.Local.InsecureSkipVerify = tc.HttpsSkipVerify
 		tunnel.Local.Port = uint16(localPort)
 		tunnel.Public.Schema = tc.Schema
 		tunnel.Public.Host = tc.Host
