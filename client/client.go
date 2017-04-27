@@ -1,15 +1,29 @@
+// Copyright 2017 longXboy, longxboyhi@gmail.com
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package client
 
 import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	rawLog "log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/getsentry/raven-go"
@@ -18,6 +32,7 @@ import (
 	"github.com/longXboy/lunnel/msg"
 	"github.com/longXboy/lunnel/transport"
 	"github.com/longXboy/lunnel/util"
+	"github.com/longXboy/lunnel/version"
 	"github.com/longXboy/smux"
 	"github.com/satori/go.uuid"
 )
@@ -25,6 +40,12 @@ import (
 const reconnectInterval = 8
 
 var clientId *uuid.UUID
+var tunnels map[string]msg.Tunnel
+var tunnelsLock sync.Mutex
+
+func init() {
+	tunnels = make(map[string]msg.Tunnel, 0)
+}
 
 func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 	pool := x509.NewCertPool()
@@ -60,7 +81,7 @@ func dialAndRun(transportMode string) {
 		return
 	}
 	defer conn.Close()
-	chello := msg.ClientHello{EncryptMode: cliConf.EncryptMode, EnableCompress: cliConf.EnableCompress}
+	chello := msg.ClientHello{EncryptMode: cliConf.EncryptMode, EnableCompress: cliConf.EnableCompress, Version: version.Version}
 	err = msg.WriteMsg(conn, msg.TypeClientHello, chello)
 	if err != nil {
 		log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("write ControlClientHello failed!")
@@ -116,33 +137,14 @@ func dialAndRun(transportMode string) {
 		log.WithFields(log.Fields{"err": err}).Warnln("sess.OpenStream failed!")
 		return
 	}
-	tunnels := make(map[string]msg.Tunnel, 0)
-	for name, tc := range cliConf.Tunnels {
-		localSchema, localHost, localPort, err := util.ParseAddr(tc.LocalAddr)
-		if err != nil {
-			log.WithFields(log.Fields{"err": err}).Warnln("util.ParseLocalAddr failed!")
-			return
-		}
-		var tunnel msg.Tunnel
-		tunnel.HttpHostRewrite = tc.HttpHostRewrite
-		tunnel.Local.Schema = localSchema
-		tunnel.Local.Host = localHost
-		tunnel.Local.Port = uint16(localPort)
-		tunnel.Public.Schema = tc.Schema
-		tunnel.Public.Host = tc.Host
-		tunnel.Public.Port = tc.Port
-		if tunnel.Public.Host == "" && tunnel.Public.Port == 0 {
-			tunnel.Public.AllowReallocate = true
-		}
-		tunnels[name] = tunnel
-	}
-	ctl := NewControl(stream, cliConf.EncryptMode, transportMode, tunnels)
+
+	ctl := NewControl(stream, cliConf.EncryptMode, transportMode, tunnels, &tunnelsLock)
 	err = ctl.clientHandShake()
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientHandShake failed!")
 		return
 	}
-	log.WithFields(log.Fields{"client_id": ctl.ClientID.String()}).Infoln("server handshake success!")
+	log.WithFields(log.Fields{"client_id": ctl.ClientID.String(), "version": version.Version}).Infoln("server handshake success!")
 	err = ctl.ClientAddTunnels()
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientSyncTunnels failed!")
@@ -151,10 +153,8 @@ func dialAndRun(transportMode string) {
 	ctl.Run()
 }
 
-func Main() {
-	configFile := flag.String("c", "./config.yml", "path of config file")
-	flag.Parse()
-	err := LoadConfig(*configFile)
+func Main(configDetail []byte, configType string) {
+	err := LoadConfig(configDetail, configType)
 	if err != nil {
 		rawLog.Fatalf("load config failed!err:=%v", err)
 	}
@@ -170,8 +170,15 @@ func Main() {
 		log.Init(cliConf.Debug, nil)
 	}
 	raven.SetDSN(cliConf.DSN)
-
-	if cliConf.Durable && cliConf.DurableFile != "" {
+	if cliConf.ClientId != "" {
+		u, err := uuid.FromString(string(cliConf.ClientId))
+		if err != nil {
+			log.WithFields(log.Fields{"err": err, "cliConf.ClientId": string(cliConf.ClientId)}).Errorln("unmarshal cliConf.ClientId failed!")
+			return
+		} else {
+			clientId = &u
+		}
+	} else if cliConf.Durable && cliConf.DurableFile != "" {
 		idFile, err := os.OpenFile(cliConf.DurableFile, os.O_RDONLY|os.O_CREATE, os.ModePerm)
 		if err != nil {
 			rawLog.Fatalf("open log file %s failed!err:=%v\n", cliConf.DurableFile, err)
@@ -192,6 +199,26 @@ func Main() {
 				clientId = &u
 			}
 		}
+	}
+
+	for name, tc := range cliConf.Tunnels {
+		localSchema, localHost, localPort, err := util.ParseAddr(tc.LocalAddr)
+		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Warnln("util.ParseLocalAddr failed!")
+			return
+		}
+		var tunnel msg.Tunnel
+		tunnel.HttpHostRewrite = tc.HttpHostRewrite
+		tunnel.Local.Schema = localSchema
+		tunnel.Local.Host = localHost
+		tunnel.Local.Port = uint16(localPort)
+		tunnel.Public.Schema = tc.Schema
+		tunnel.Public.Host = tc.Host
+		tunnel.Public.Port = tc.Port
+		if tunnel.Public.Host == "" && tunnel.Public.Port == 0 {
+			tunnel.Public.AllowReallocate = true
+		}
+		tunnels[name] = tunnel
 	}
 
 	var transportMode string

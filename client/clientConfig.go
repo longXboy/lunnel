@@ -1,12 +1,24 @@
+// Copyright 2017 longXboy, longxboyhi@gmail.com
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package client
 
 import (
 	"crypto/sha1"
 	"encoding/json"
-	"io/ioutil"
 	"net"
 	"os"
-	"strings"
 
 	"github.com/longXboy/lunnel/log"
 	"github.com/longXboy/lunnel/util"
@@ -38,8 +50,9 @@ type Health struct {
 }
 
 type Config struct {
-	Debug   bool   `yaml:"debug,omitempty"`
-	LogFile string `yaml:"log_file,omitempty"`
+	Debug    bool   `yaml:"debug,omitempty"`
+	LogFile  string `yaml:"log_file,omitempty"`
+	ClientId string `yaml:"id,omitempty"`
 	//if EncryptMode is tls and ServerName is empty,ServerAddr can't be IP format
 	ServerAddr  string `yaml:"server_addr"`
 	Aes         Aes    `yaml:"aes,omitempty"`
@@ -60,23 +73,21 @@ type Config struct {
 	Durable        bool   `yaml:"durable,omitempty"`
 	DurableFile    string `yaml:"durable_file,omitempty"`
 	Health         Health `yaml:"health,omitempty"`
+	ManagePort     uint16 `yaml:"manage_port,omitempty"`
 }
 
 var cliConf Config
 
-func LoadConfig(configFile string) error {
-	if configFile != "" {
-		content, err := ioutil.ReadFile(configFile)
-		if err != nil {
-			return errors.Wrap(err, "read config file")
-		}
-		if strings.HasSuffix(configFile, "json") {
-			err = json.Unmarshal(content, &cliConf)
+func LoadConfig(configDetail []byte, configType string) error {
+	var err error
+	if len(configDetail) > 0 {
+		if configType == "json" {
+			err = json.Unmarshal(configDetail, &cliConf)
 			if err != nil {
 				return errors.Wrap(err, "unmarshal config file using json decode")
 			}
 		} else {
-			err = yaml.Unmarshal(content, &cliConf)
+			err = yaml.Unmarshal(configDetail, &cliConf)
 			if err != nil {
 				return errors.Wrap(err, "unmarshal config file using yaml decode")
 			}
@@ -164,6 +175,9 @@ func LoadConfig(configFile string) error {
 	}
 	if cliConf.Health.TimeOut == 0 {
 		cliConf.Health.TimeOut = 50
+	}
+	if cliConf.ManagePort == 0 {
+		cliConf.ManagePort = 8082
 	}
 	return nil
 }

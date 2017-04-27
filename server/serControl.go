@@ -1,3 +1,17 @@
+// Copyright 2017 longXboy, longxboyhi@gmail.com
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package server
 
 import (
@@ -20,8 +34,8 @@ import (
 	"golang.org/x/net/context"
 )
 
-var maxIdlePipes int = 2
-var maxStreams int = 6
+var maxIdlePipes uint64
+var maxStreams uint64
 
 var cleanInterval time.Duration = time.Second * 60
 
@@ -33,7 +47,7 @@ var subDomainIdx uint64
 var TunnelMapLock sync.RWMutex
 var TunnelMap = make(map[string]*Tunnel)
 
-func NewControl(conn net.Conn, encryptMode string, enableCompress bool) *Control {
+func NewControl(conn net.Conn, encryptMode string, enableCompress bool, version string) *Control {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	ctl := &Control{
@@ -43,10 +57,11 @@ func NewControl(conn net.Conn, encryptMode string, enableCompress bool) *Control
 		writeChan:      make(chan writeReq, 64),
 		encryptMode:    encryptMode,
 		tunnels:        make(map[string]*Tunnel, 0),
-		enableCompress: enableCompress,
 		tunnelLock:     new(sync.Mutex),
+		enableCompress: enableCompress,
 		ctx:            ctx,
 		cancel:         cancel,
+		version:        version,
 	}
 	return ctl
 }
@@ -81,6 +96,7 @@ func (t *Tunnel) Close() {
 		}
 	}
 	t.isClosed = true
+	t.listener = nil
 }
 
 type pipeNode struct {
@@ -90,26 +106,27 @@ type pipeNode struct {
 }
 
 type Control struct {
-	ClientID uuid.UUID
-
+	ClientID        uuid.UUID
 	ctlConn         net.Conn
-	tunnels         map[string]*Tunnel
-	tunnelLock      *sync.Mutex
 	preMasterSecret []byte
 	lastRead        uint64
 	encryptMode     string
 	enableCompress  bool
+	writeChan       chan writeReq
+	version         string
+
+	tunnels    map[string]*Tunnel
+	tunnelLock *sync.Mutex
 
 	busyPipes  *pipeNode
-	idleCount  int
+	idleCount  uint64
 	idlePipes  *pipeNode
 	totalPipes int64
 	pipeAdd    chan *smux.Session
 	pipeGet    chan *smux.Session
 
-	writeChan chan writeReq
-	cancel    context.CancelFunc
-	ctx       context.Context
+	cancel context.CancelFunc
+	ctx    context.Context
 }
 
 func (c *Control) addIdlePipe(pipe *smux.Session) {
@@ -120,7 +137,6 @@ func (c *Control) addIdlePipe(pipe *smux.Session) {
 	}
 	c.idlePipes = pNode
 	c.idleCount++
-
 }
 
 func (c *Control) addBusyPipe(pipe *smux.Session) {
@@ -192,7 +208,7 @@ func (c *Control) clean() {
 		}
 		if busy.pipe.IsClosed() {
 			c.removeBusyNode(busy)
-		} else if busy.pipe.NumStreams() < maxStreams {
+		} else if uint64(busy.pipe.NumStreams()) < maxStreams {
 			c.removeBusyNode(busy)
 			c.addIdlePipe(busy.pipe)
 		}
@@ -234,6 +250,7 @@ func (c *Control) getIdleFast() (idle *pipeNode) {
 }
 
 func (c *Control) pipeManage() {
+	defer c.closePipes()
 	var available *smux.Session
 	ticker := time.NewTicker(cleanInterval)
 	defer ticker.Stop()
@@ -264,7 +281,7 @@ func (c *Control) pipeManage() {
 							}
 						case p := <-c.pipeAdd:
 							if !p.IsClosed() {
-								if p.NumStreams() < maxStreams {
+								if uint64(p.NumStreams()) < maxStreams {
 									available = p
 									goto Available
 								} else {
@@ -293,7 +310,7 @@ func (c *Control) pipeManage() {
 			available = nil
 		case p := <-c.pipeAdd:
 			if !p.IsClosed() {
-				if p.NumStreams() < maxStreams {
+				if uint64(p.NumStreams()) < maxStreams {
 					c.addIdlePipe(p)
 				} else {
 					c.addBusyPipe(p)
@@ -306,11 +323,12 @@ func (c *Control) pipeManage() {
 }
 
 func (c *Control) Close() {
+	log.WithField("clientId", c.ClientID).Debugln("ready to close control")
 	c.cancel()
-	log.WithField("clientId", c.ClientID).Debugln("control closing")
 }
 
 func (c *Control) closeTunnels() []*Tunnel {
+	log.WithField("clientId", c.ClientID).Debugln("ready to close tunnels")
 	var tunnels []*Tunnel
 	c.tunnelLock.Lock()
 	for _, t := range c.tunnels {
@@ -321,10 +339,8 @@ func (c *Control) closeTunnels() []*Tunnel {
 	return tunnels
 }
 
-func (c *Control) moderator() {
-	_ = <-c.ctx.Done()
-	log.WithFields(log.Fields{"ClientId": c.ClientID.String()}).Infoln("close client control")
-	c.closeTunnels()
+func (c *Control) closePipes() {
+	log.WithField("clientId", c.ClientID).Debugln("ready to close pipes")
 	idle := c.idlePipes
 	for {
 		if idle == nil {
@@ -336,6 +352,8 @@ func (c *Control) moderator() {
 		}
 		idle = idle.next
 	}
+	c.idlePipes = nil
+
 	busy := c.busyPipes
 	for {
 		if busy == nil {
@@ -347,7 +365,7 @@ func (c *Control) moderator() {
 		}
 		busy = busy.next
 	}
-	c.ctlConn.Close()
+	c.busyPipes = nil
 }
 
 func (c *Control) recvLoop() {
@@ -407,15 +425,15 @@ func (c *Control) writeLoop() {
 				return
 			}
 		case <-c.ctx.Done():
-			fmt.Println("write done")
 			return
 		}
 	}
-
 }
 
 func (c *Control) Serve() {
-	go c.moderator()
+	defer c.ctlConn.Close()
+	defer c.closeTunnels()
+
 	go c.recvLoop()
 	go c.writeLoop()
 	go c.pipeManage()
@@ -487,7 +505,7 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
 		}
 
 		if tunnel.Public.Schema == "tcp" || tunnel.Public.Schema == "udp" {
-			if tunnel.Public.Port == 0 && oldTunnel != nil && tunnel.Public.Schema == oldTunnel.tunnelConfig.Public.Schema {
+			if tunnel.Public.Port == 0 && oldTunnel != nil && tunnel.Public.Schema == oldTunnel.tunnelConfig.Public.Schema && tunnel.LocalAddr() == oldTunnel.tunnelConfig.LocalAddr() {
 				tunnel.Public.AllowReallocate = true
 				tunnel.Public.Port = oldTunnel.tunnelConfig.Public.Port
 			}
@@ -523,7 +541,7 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
 			tunnel.Public.Host = serverConf.ServerDomain
 		} else if tunnel.Public.Schema == "http" || tunnel.Public.Schema == "https" {
 			if tunnel.Public.Host == "" {
-				if oldTunnel != nil && tunnel.Public.Schema == oldTunnel.tunnelConfig.Public.Schema {
+				if oldTunnel != nil && tunnel.Public.Schema == oldTunnel.tunnelConfig.Public.Schema && tunnel.LocalAddr() == oldTunnel.tunnelConfig.LocalAddr() {
 					tunnel.Public.AllowReallocate = true
 					tunnel.Public.Host = oldTunnel.tunnelConfig.Public.Host
 				} else {
@@ -592,7 +610,7 @@ func (c *Control) ServerHandShake() error {
 	}
 	chello = body.(*msg.ControlClientHello)
 	if serverConf.AuthEnable {
-		isok, err := contrib.Auth(chello.AuthToken)
+		isok, err := contrib.Auth(chello)
 		if err != nil {
 			return errors.Wrap(err, "contrib.Auth")
 		}
@@ -624,18 +642,20 @@ func (c *Control) ServerHandShake() error {
 		return errors.Wrap(err, "Write ClientId")
 	}
 
-	ControlMapLock.Lock()
+	ControlMapLock.RLock()
 	old, isok := ControlMap[c.ClientID]
 	ControlMap[c.ClientID] = c
-	ControlMapLock.Unlock()
+	ControlMapLock.RUnlock()
 	if isok {
 		oldTunnels := old.closeTunnels()
-		old.Close()
-		for _, old := range oldTunnels {
-			c.tunnels[old.name] = old
+		for _, oldTunnel := range oldTunnels {
+			c.tunnels[oldTunnel.name] = oldTunnel
 		}
 		c.tunnelLock = old.tunnelLock
 	}
+	ControlMapLock.Lock()
+	ControlMap[c.ClientID] = c
+	ControlMapLock.Unlock()
 	return nil
 }
 

@@ -1,10 +1,23 @@
+// Copyright 2017 longXboy, longxboyhi@gmail.com
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package server
 
 import (
 	"crypto/sha1"
 	"encoding/json"
-	"io/ioutil"
-	"strings"
+	"strconv"
 
 	"github.com/longXboy/lunnel/log"
 	"github.com/pkg/errors"
@@ -44,23 +57,22 @@ type Config struct {
 	NotifyKey    string `yaml:"notify_key,omitempty"`
 	DSN          string `yaml:"dsn,omitempty"`
 	Health       Health `yaml:"health,omitempty"`
+	MaxIdlePipes string `yaml:"max_idle_pipes,omitempty"`
+	MaxStreams   string `yaml:"max_streams,omitempty"`
 }
 
 var serverConf Config
 
-func LoadConfig(configFile string) error {
-	if configFile != "" {
-		content, err := ioutil.ReadFile(configFile)
-		if err != nil {
-			return errors.Wrap(err, "read config file")
-		}
-		if strings.HasSuffix(configFile, "json") {
-			err = json.Unmarshal(content, &serverConf)
+func LoadConfig(configDetail []byte, configType string) error {
+	var err error
+	if len(configDetail) > 0 {
+		if configType == "json" {
+			err = json.Unmarshal(configDetail, &serverConf)
 			if err != nil {
 				return errors.Wrap(err, "unmarshal config file using json decode")
 			}
 		} else {
-			err = yaml.Unmarshal(content, &serverConf)
+			err = yaml.Unmarshal(configDetail, &serverConf)
 			if err != nil {
 				return errors.Wrap(err, "unmarshal config file using yaml decode")
 			}
@@ -99,5 +111,22 @@ func LoadConfig(configFile string) error {
 	if serverConf.Health.TimeOut == 0 {
 		serverConf.Health.TimeOut = 50
 	}
+	if serverConf.MaxIdlePipes == "" {
+		serverConf.MaxIdlePipes = "5"
+	} else {
+		_, err := strconv.ParseUint(serverConf.MaxIdlePipes, 10, 64)
+		if err != nil {
+			log.Fatalln("max_idle_pipes must be an unsigned integer")
+		}
+	}
+	if serverConf.MaxStreams == "" {
+		serverConf.MaxStreams = "6"
+	} else {
+		_, err := strconv.ParseUint(serverConf.MaxStreams, 10, 64)
+		if err != nil {
+			log.Fatalln("max_streams must be an unsigned integer")
+		}
+	}
+
 	return nil
 }

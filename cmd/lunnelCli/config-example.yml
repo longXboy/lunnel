@@ -1,16 +1,16 @@
 server_addr: 127.0.0.1:8080
-tunnels: 
-  2048: 
+tunnels:
+  2048:
     local: http://127.0.0.1:32768
     http_host_rewrite: www.2048.com
-  2048_tcp: 
+  2048_tcp:
     schema: tcp
     local: http://127.0.0.1:32768
-  docker: 
+  docker:
     schema: http
     host: docker.example.com
     local: unix:///var/run/docker.sock
-tls: 
+tls:
   trusted_cert: ./cacert-example.pem
   server_name: example.com
 enable_compress: true

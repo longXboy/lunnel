@@ -1,0 +1,60 @@
+#服务器地址
+server_addr: 127.0.0.1:8080
+tunnels:
+  #代理隧道的名字，必须唯一不可重复
+  2048:
+    #外网访问使用的协议，可以是http、https、tcp、udp
+    schema: http
+    #客户端代理的本地地址
+    local: http://127.0.0.1:32768
+    #外网公开访问的地址，当服务器中已经存在相同的host，则会报错(如果不填写则由服务器端自动分配)
+    host: 2048.example.com
+    #将http request中host字段替换成该字段的值
+    http_host_rewrite: www.2048.com
+  2048_tcp:
+    schema: tcp
+    #当协议是tcp或udp时可以指定外网访问端口，如果端口已存在，则会报错
+    port: 33333
+    local: http://127.0.0.1:32768
+  2048_https:
+    schema: https
+    local: http://127.0.0.1:32768
+  docker:
+    schema: http
+    local: unix:///var/run/docker.sock
+  udp:
+    schema: udp
+    local: udp://127.0.0.1:32769
+#底层传输的加密模式，可以是tls,aes,none，如果定义为none，则不使用任何加密
+encrypt_mode: none
+#tls加密的配置，如果未配置encrypt_mode则默认使用tls加密
+tls:
+  #如果服务器使用的是自签名证书，需要配置可信任的根证书
+  trusted_cert: ./cacert-example.pem
+  #如果server_addr中填写的不是域名而是IP地址的话，必须要指定server_name，否则会握手失败
+  server_name: example.com
+#aes加密的配置，如果未配置encrypt_mode和tls则默认使用aes加密
+aes:
+  #aes密钥
+  secret_key: password
+#数据传输是否启用压缩
+enable_compress: true
+#底层传输协议，可以是mix、tcp、kcp，如果定义为mix，则会混合使用tcp和kcp
+transport: mix
+#http_proxy地址，如果指定了该字段，则底层传输协议必须为tcp
+http_proxy: http://127.0.0.1:8888
+#是否开启客户端ID持久化，如果不开启，客户端重启的时候会丢失服务端分配的外网公开访问的地址
+durable: true
+#客户端ID持久化文件路径
+durable_file: ./lunnel.id
+#http管理端口，可以用来实时添加或修改代理隧道
+manage_port: 8082
+#是否开启DEBUG日志模式
+debug: true
+#日志地址，不填写的话则输出至STDOUT\STDERR
+log_file: ./client.log
+health:
+  #心跳周期，单位秒
+  interval: 15
+  #心跳超时时间，单位秒
+  timeout: 40

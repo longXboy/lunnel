@@ -64,19 +64,19 @@ memo = "3e20a742f88f2fe4dd03a2ac9e964a9413af0866c2c4f32751347515ecc5ee9a"
   branch = "master"
   name = "golang.org/x/crypto"
   packages = ["blowfish","cast5","pbkdf2","salsa20","salsa20/salsa","tea","twofish","xtea"]
-  revision = "12c985af8526c1f6f0c463bbfd9d69623d13b323"
+  revision = "96846453c37f0876340a66a47f3f75b1f3a6cd2d"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/net"
   packages = ["bpf","context","internal/iana","internal/netreflect","ipv4"]
-  revision = "5602c733f70afc6dcec6766be0d5034d4c4f14de"
+  revision = "d212a1ef2de2f5d441c327b8f26cf3ea3ea9f265"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "f3918c30c5c2cb527c0b071a27c35120a6c0719a"
+  revision = "ea9bcade75cb975a0b9738936568ab388b845617"
 
 [[projects]]
   branch = "v2"
