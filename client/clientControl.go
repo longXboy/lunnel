@@ -84,6 +84,8 @@ func (c *Control) Close() {
 }
 
 func (c *Control) createPipe() {
+	defer log.CapturePanic()
+
 	log.WithFields(log.Fields{"time": time.Now().Unix(), "pipe_count": atomic.LoadInt64(&c.totalPipes)}).Debugln("create pipe to server!")
 	pipeConn, err := transport.CreateConn(cliConf.ServerAddr, c.transportMode, cliConf.HttpProxy)
 	if err != nil {
@@ -113,6 +115,8 @@ func (c *Control) createPipe() {
 			return
 		}
 		go func() {
+			defer log.CapturePanic()
+
 			defer stream.Close()
 			c.tunnelsLock.Lock()
 			tunnel, isok := c.tunnels[stream.TunnelName()]
@@ -201,6 +205,8 @@ func (c *Control) ClientAddTunnels() error {
 }
 
 func (c *Control) recvLoop() {
+	defer log.CapturePanic()
+
 	atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 	for {
 		mType, body, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
@@ -239,6 +245,8 @@ func (c *Control) recvLoop() {
 }
 
 func (c *Control) writeLoop() {
+	defer log.CapturePanic()
+
 	lastWrite := time.Now()
 	for {
 		select {
@@ -293,6 +301,8 @@ func (c *Control) AddTunnel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *Control) serveHttp(lis net.Listener) {
+	defer log.CapturePanic()
+
 	m := http.NewServeMux()
 	m.HandleFunc("/tunnel", c.AddTunnel)
 	err := http.Serve(lis, m)

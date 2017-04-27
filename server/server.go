@@ -16,13 +16,10 @@ package server
 
 import (
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	rawLog "log"
 	"net"
-	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -79,62 +76,6 @@ func Main(configDetail []byte, configType string) {
 	<-wait
 }
 
-func serveManage() {
-	http.HandleFunc("/tunnel", tunnelQuery)
-	http.ListenAndServe(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ManagePort), nil)
-}
-
-type tunnelStateReq struct {
-	RemoteAddr string
-}
-
-type tunnelStateResp struct {
-	Tunnels []string
-}
-
-func tunnelQuery(w http.ResponseWriter, r *http.Request) {
-	content, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "req body is empty")
-		return
-	}
-	r.Body.Close()
-
-	var query tunnelStateReq
-	err = json.Unmarshal(content, &query)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "unmarshal req body failed")
-		return
-	}
-	var tunnelStats tunnelStateResp = tunnelStateResp{Tunnels: []string{}}
-	if query.RemoteAddr != "" {
-		TunnelMapLock.RLock()
-		tunnel, isok := TunnelMap[query.RemoteAddr]
-		TunnelMapLock.RUnlock()
-		if isok {
-			tunnelStats.Tunnels = append(tunnelStats.Tunnels, tunnel.tunnelConfig.PublicAddr())
-		}
-	} else {
-		TunnelMapLock.RLock()
-		for _, v := range TunnelMap {
-			tunnelStats.Tunnels = append(tunnelStats.Tunnels, v.tunnelConfig.PublicAddr())
-		}
-		TunnelMapLock.RUnlock()
-	}
-	header := w.Header()
-	header["Content-Type"] = []string{"application/json"}
-	w.WriteHeader(http.StatusOK)
-	retBody, err := json.Marshal(tunnelStats)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "marshal resp body failed")
-		return
-	}
-	w.Write(retBody)
-}
-
 func listenAndServe(transportMode string) {
 	addr := fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort)
 	lis, err := transport.Listen(addr, transportMode)
@@ -147,6 +88,7 @@ func listenAndServe(transportMode string) {
 }
 
 func handleConn(conn net.Conn) {
+	defer log.CapturePanic()
 	mType, body, err := msg.ReadMsg(conn)
 	if err != nil {
 		conn.Close()
@@ -236,7 +178,9 @@ func serve(lis net.Listener) {
 }
 
 func handleHttpsConn(conn net.Conn) {
+	defer log.CapturePanic()
 	defer conn.Close()
+
 	conn.SetDeadline(time.Now().Add(time.Second * 20))
 	sconn, info, err := vhost.GetHttpsHostname(conn)
 	if err != nil {
@@ -277,7 +221,9 @@ func serveHttps(addr string) {
 }
 
 func handleHttpConn(conn net.Conn) {
+	defer log.CapturePanic()
 	defer conn.Close()
+
 	conn.SetDeadline(time.Now().Add(time.Second * 20))
 	sconn, info, err := vhost.GetHttpRequestInfo(conn)
 	if err != nil {

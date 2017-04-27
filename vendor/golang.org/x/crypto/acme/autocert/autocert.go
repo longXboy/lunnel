@@ -162,6 +162,10 @@ type Manager struct {
 // The error is propagated back to the caller of GetCertificate and is user-visible.
 // This does not affect cached certs. See HostPolicy field description for more details.
 func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	if m.Prompt == nil {
+		return nil, errors.New("acme/autocert: Manager.Prompt not set")
+	}
+
 	name := hello.ServerName
 	if name == "" {
 		return nil, errors.New("acme/autocert: missing server name")
@@ -240,6 +244,7 @@ func (m *Manager) cert(ctx context.Context, name string) (*tls.Certificate, erro
 }
 
 // cacheGet always returns a valid certificate, or an error otherwise.
+// If a cached certficate exists but is not valid, ErrCacheMiss is returned.
 func (m *Manager) cacheGet(ctx context.Context, domain string) (*tls.Certificate, error) {
 	if m.Cache == nil {
 		return nil, ErrCacheMiss
@@ -252,7 +257,7 @@ func (m *Manager) cacheGet(ctx context.Context, domain string) (*tls.Certificate
 	// private
 	priv, pub := pem.Decode(data)
 	if priv == nil || !strings.Contains(priv.Type, "PRIVATE") {
-		return nil, errors.New("acme/autocert: no private key found in cache")
+		return nil, ErrCacheMiss
 	}
 	privKey, err := parsePrivateKey(priv.Bytes)
 	if err != nil {
@@ -270,13 +275,14 @@ func (m *Manager) cacheGet(ctx context.Context, domain string) (*tls.Certificate
 		pubDER = append(pubDER, b.Bytes)
 	}
 	if len(pub) > 0 {
-		return nil, errors.New("acme/autocert: invalid public key")
+		// Leftover content not consumed by pem.Decode. Corrupt. Ignore.
+		return nil, ErrCacheMiss
 	}
 
 	// verify and create TLS cert
 	leaf, err := validCert(domain, pubDER, privKey)
 	if err != nil {
-		return nil, err
+		return nil, ErrCacheMiss
 	}
 	tlscert := &tls.Certificate{
 		Certificate: pubDER,

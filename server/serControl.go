@@ -250,6 +250,8 @@ func (c *Control) getIdleFast() (idle *pipeNode) {
 }
 
 func (c *Control) pipeManage() {
+	defer log.CapturePanic()
+
 	defer c.closePipes()
 	var available *smux.Session
 	ticker := time.NewTicker(cleanInterval)
@@ -369,6 +371,8 @@ func (c *Control) closePipes() {
 }
 
 func (c *Control) recvLoop() {
+	defer log.CapturePanic()
+
 	atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 	for {
 		mType, body, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
@@ -401,6 +405,8 @@ func (c *Control) recvLoop() {
 }
 
 func (c *Control) writeLoop() {
+	defer log.CapturePanic()
+
 	lastWrite := time.Now()
 	idx := 0
 	for {
@@ -493,6 +499,8 @@ func proxyConn(userConn net.Conn, c *Control, tunnelName string) {
 
 //add or update tunnel stat
 func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
+	defer log.CapturePanic()
+
 	c.tunnelLock.Lock()
 	defer c.tunnelLock.Unlock()
 	for name, tunnel := range sstm.Tunnels {

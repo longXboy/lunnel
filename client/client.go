@@ -170,6 +170,8 @@ func Main(configDetail []byte, configType string) {
 		log.Init(cliConf.Debug, nil)
 	}
 	raven.SetDSN(cliConf.DSN)
+	defer log.CapturePanic()
+
 	if cliConf.ClientId != "" {
 		u, err := uuid.FromString(string(cliConf.ClientId))
 		if err != nil {
