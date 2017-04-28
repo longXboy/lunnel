@@ -1,4 +1,4 @@
-memo = "0bcd771f3080b56178ebf168ee27bb2ed980b0d31a031b571f1c3d69b77ef6dd"
+memo = "e69c7fe068b638d09b87ddccd57ee6db4797f179040f26540fab3ea93a990a2b"
 
 [[projects]]
   name = "github.com/Sirupsen/logrus"
@@ -11,6 +11,12 @@ memo = "0bcd771f3080b56178ebf168ee27bb2ed980b0d31a031b571f1c3d69b77ef6dd"
   packages = ["."]
   revision = "a9c833d2837d3b16888d55d5aafa9ffe9afb22b0"
   version = "2017.04.17"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/e-dard/netbug"
+  packages = ["."]
+  revision = "e64d308a0b205c901264e88a10e70d64acb1810d"
 
 [[projects]]
   branch = "master"

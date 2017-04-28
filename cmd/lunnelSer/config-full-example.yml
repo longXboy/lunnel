@@ -28,6 +28,8 @@ health:
   #心跳超时时间，单位秒
   timeout: 40
 #每个客户端的最大物理空闲连接数，不填写的话则默认为4
-max_idle_pipes: 5
+max_idle_pipes: 4
 #单个物理连接所能承载的最大并发请求数，不填写的话则默认为6
 max_streams: 6
+#是否开启go profiling
+pprof_enable: false

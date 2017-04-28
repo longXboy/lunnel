@@ -650,10 +650,10 @@ func (c *Control) ServerHandShake() error {
 		return errors.Wrap(err, "Write ClientId")
 	}
 
-	ControlMapLock.RLock()
+	ControlMapLock.Lock()
 	old, isok := ControlMap[c.ClientID]
 	ControlMap[c.ClientID] = c
-	ControlMapLock.RUnlock()
+	ControlMapLock.Unlock()
 	if isok {
 		oldTunnels := old.closeTunnels()
 		for _, oldTunnel := range oldTunnels {

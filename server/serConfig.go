@@ -59,6 +59,7 @@ type Config struct {
 	Health       Health `yaml:"health,omitempty"`
 	MaxIdlePipes string `yaml:"max_idle_pipes,omitempty"`
 	MaxStreams   string `yaml:"max_streams,omitempty"`
+	PProfEnable  bool   `yaml:"pprof_enable,omitempty"`
 }
 
 var serverConf Config

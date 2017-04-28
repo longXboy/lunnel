@@ -19,17 +19,18 @@ import (
 	"net/http"
 	"sync/atomic"
 
+	"github.com/e-dard/netbug"
 	"github.com/longXboy/lunnel/log"
 	"github.com/longXboy/lunnel/msg"
 	"github.com/satori/go.uuid"
 	"gopkg.in/gin-gonic/gin.v1"
 )
 
-type tunnelsStateReq struct {
+type tunnelStateReq struct {
 	PublicUrl string
 }
 
-type tunnelsStateResp struct {
+type tunnelStateResp struct {
 	Tunnels []string
 }
 
@@ -48,7 +49,7 @@ type tunnelState struct {
 	IsClosed bool
 }
 
-type clientsStateResp struct {
+type clientStateResp struct {
 	Clients []clientState
 }
 
@@ -59,30 +60,33 @@ func listenAndServeManage() {
 		gin.SetMode("release")
 	}
 	r := gin.New()
-
 	r.GET("/v1/tunnels", tunnelsQuery)
-	r.POST("/v1/tunnel", tunnelQuery)
-
+	r.POST("/v1/tunnels", tunnelQuery)
 	r.GET("/v1/clients", clientsQuery)
 	r.GET("/v1/clients/clientId", clientQuery)
 
-	log.WithFields(log.Fields{"addr": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ManagePort)}).Infoln("start to listen and serve manage")
+	mux := http.NewServeMux()
+	if serverConf.PProfEnable {
+		netbug.RegisterHandler("/pprof/", mux)
+	}
+	mux.Handle("/v1/", r)
 
-	err := r.Run(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ManagePort))
+	log.WithFields(log.Fields{"addr": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ManagePort)}).Infoln("start to listen and serve manage")
+	err := http.ListenAndServe(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ManagePort), mux)
 	if err != nil {
 		log.WithFields(log.Fields{"addr": fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ManagePort), "err": err.Error()}).Infoln("listen and serve manage failed!")
 	}
 }
 
 func tunnelQuery(c *gin.Context) {
-	var query tunnelsStateReq
+	var query tunnelStateReq
 	err := c.BindJSON(&query)
 	if err != nil {
 		c.String(http.StatusBadRequest, fmt.Sprintf("unmarshal req body failed!"))
 		return
 	}
 
-	var tunnelStats tunnelsStateResp = tunnelsStateResp{Tunnels: []string{}}
+	var tunnelStats tunnelStateResp = tunnelStateResp{Tunnels: []string{}}
 	if query.PublicUrl != "" {
 		TunnelMapLock.RLock()
 		tunnel, isok := TunnelMap[query.PublicUrl]
@@ -96,7 +100,7 @@ func tunnelQuery(c *gin.Context) {
 }
 
 func tunnelsQuery(c *gin.Context) {
-	var tunnelStats tunnelsStateResp = tunnelsStateResp{Tunnels: []string{}}
+	var tunnelStats tunnelStateResp = tunnelStateResp{Tunnels: []string{}}
 
 	TunnelMapLock.RLock()
 	for _, v := range TunnelMap {
@@ -114,7 +118,7 @@ func clientQuery(c *gin.Context) {
 		c.String(http.StatusBadRequest, fmt.Sprintf("invalid uuid"))
 		return
 	}
-	var clientStates clientsStateResp = clientsStateResp{Clients: []clientState{}}
+	var clientStates clientStateResp = clientStateResp{Clients: []clientState{}}
 	ControlMapLock.RLock()
 	ctlClient := ControlMap[uuid]
 	ControlMapLock.RUnlock()
@@ -136,7 +140,7 @@ func clientQuery(c *gin.Context) {
 }
 
 func clientsQuery(c *gin.Context) {
-	var clientStates clientsStateResp = clientsStateResp{Clients: []clientState{}}
+	var clientStates clientStateResp = clientStateResp{Clients: []clientState{}}
 	clients := make([]*Control, 0)
 	ControlMapLock.RLock()
 	for _, v := range ControlMap {
