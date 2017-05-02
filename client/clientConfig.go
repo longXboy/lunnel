@@ -155,7 +155,12 @@ func LoadConfig(configDetail []byte, configType string) error {
 				return errors.Errorf("%s local_host can not be empty", name)
 			}
 			if localSchema == "" {
-				localSchema = "tcp"
+				if tunnel.Schema != "" {
+					localSchema = tunnel.Schema
+				} else {
+					localSchema = "tcp"
+				}
+				tunnel.LocalAddr = localSchema + "://" + tunnel.LocalAddr
 			}
 			if tunnel.Schema == "" {
 				tunnel.Schema = localSchema
