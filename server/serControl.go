@@ -106,10 +106,15 @@ type pipeNode struct {
 }
 
 type Control struct {
+	// To work on both ARM and x86-32,
+	// these two fields must be the first elements to keep 64-bit
+	// alignment for atomic access to the fields.
+	lastRead   uint64
+	totalPipes int64
+
 	ClientID        uuid.UUID
 	ctlConn         net.Conn
 	preMasterSecret []byte
-	lastRead        uint64
 	encryptMode     string
 	enableCompress  bool
 	writeChan       chan writeReq
@@ -118,12 +123,11 @@ type Control struct {
 	tunnels    map[string]*Tunnel
 	tunnelLock *sync.Mutex
 
-	busyPipes  *pipeNode
-	idleCount  uint64
-	idlePipes  *pipeNode
-	totalPipes int64
-	pipeAdd    chan *smux.Session
-	pipeGet    chan *smux.Session
+	busyPipes *pipeNode
+	idleCount uint64
+	idlePipes *pipeNode
+	pipeAdd   chan *smux.Session
+	pipeGet   chan *smux.Session
 
 	cancel context.CancelFunc
 	ctx    context.Context
@@ -517,36 +521,65 @@ func (c *Control) ServerAddTunnels(sstm *msg.AddTunnels) {
 				tunnel.Public.AllowReallocate = true
 				tunnel.Public.Port = oldTunnel.tunnelConfig.Public.Port
 			}
-			lis, err = net.Listen(tunnel.Public.Schema, fmt.Sprintf("%s:%d", serverConf.ListenIP, tunnel.Public.Port))
-			if err != nil {
-				if tunnel.Public.AllowReallocate {
-					lis, err = net.Listen(tunnel.Public.Schema, fmt.Sprintf("%s:%d", serverConf.ListenIP, 0))
+			if tunnel.Public.Schema == "udp" {
+				addr := net.UDPAddr{
+					Port: int(tunnel.Public.Port),
+					IP:   net.ParseIP(serverConf.ListenIP),
 				}
+				udpConn, err := net.ListenUDP("udp", &addr)
 				if err != nil {
-					log.WithFields(log.Fields{"remote_addr": tunnel.PublicAddr(), "client_id": c.ClientID.String()}).Warningln("forbidden,remote port already in use")
-					select {
-					case c.writeChan <- writeReq{msg.TypeError, msg.Error{fmt.Sprintf("add tunnels failed!forbidden,remote addrs(%s) already in use", tunnel.PublicAddr())}}:
-					default:
-						c.Close()
-						return
+					if tunnel.Public.AllowReallocate {
+						addr.Port = 0
+						udpConn, err = net.ListenUDP("udp", &addr)
 					}
-
-					continue
-				}
-			}
-			go func(tunnelName string) {
-				for {
-					conn, err := lis.Accept()
 					if err != nil {
-						return
+						log.WithFields(log.Fields{"remote_addr": tunnel.PublicAddr(), "client_id": c.ClientID.String(), "err": err.Error()}).Warningln("listen tunnel failed!")
+						select {
+						case c.writeChan <- writeReq{msg.TypeError, msg.Error{fmt.Sprintf("add tunnels(remote_addr:%s) failed!err:=%s", tunnel.PublicAddr(), err.Error())}}:
+						default:
+							c.Close()
+							return
+						}
+
+						continue
 					}
-					go proxyConn(conn, c, tunnelName)
 				}
-			}(name)
-			//todo: port should  allocated and managed by server not by OS
-			addr := lis.Addr().(*net.TCPAddr)
-			tunnel.Public.Port = uint16(addr.Port)
-			tunnel.Public.Host = serverConf.ServerDomain
+				go proxyConn(udpConn, c, name)
+
+				tunnel.Public.Port = uint16(udpConn.LocalAddr().(*net.UDPAddr).Port)
+				tunnel.Public.Host = serverConf.ServerDomain
+			} else {
+				lis, err = net.Listen(tunnel.Public.Schema, fmt.Sprintf("%s:%d", serverConf.ListenIP, tunnel.Public.Port))
+				if err != nil {
+					if tunnel.Public.AllowReallocate {
+						lis, err = net.Listen(tunnel.Public.Schema, fmt.Sprintf("%s:%d", serverConf.ListenIP, 0))
+					}
+					if err != nil {
+						log.WithFields(log.Fields{"remote_addr": tunnel.PublicAddr(), "client_id": c.ClientID.String(), "err": err.Error()}).Warningln("listen tunnel failed!")
+						select {
+						case c.writeChan <- writeReq{msg.TypeError, msg.Error{fmt.Sprintf("add tunnels(remote_addr:%s) failed!err:=%s", tunnel.PublicAddr(), err.Error())}}:
+						default:
+							c.Close()
+							return
+						}
+
+						continue
+					}
+				}
+				go func(tunnelName string) {
+					for {
+						conn, err := lis.Accept()
+						if err != nil {
+							return
+						}
+						go proxyConn(conn, c, tunnelName)
+					}
+				}(name)
+				//todo: port should  allocated and managed by server not by OS
+				addr := lis.Addr().(*net.TCPAddr)
+				tunnel.Public.Port = uint16(addr.Port)
+				tunnel.Public.Host = serverConf.ServerDomain
+			}
 		} else if tunnel.Public.Schema == "http" || tunnel.Public.Schema == "https" {
 			if tunnel.Public.Host == "" {
 				if oldTunnel != nil && tunnel.Public.Schema == oldTunnel.tunnelConfig.Public.Schema && tunnel.LocalAddr() == oldTunnel.tunnelConfig.LocalAddr() {
