@@ -34,7 +34,7 @@ memo = "e69c7fe068b638d09b87ddccd57ee6db4797f179040f26540fab3ea93a990a2b"
   branch = "master"
   name = "github.com/golang/protobuf"
   packages = ["proto"]
-  revision = "2bba0603135d7d7f5cb73b2125beeda19c09f4ef"
+  revision = "18c9bb3261723cd5401db4d0c9fbc5c3b6c70fe8"
 
 [[projects]]
   branch = "master"
@@ -58,7 +58,7 @@ memo = "e69c7fe068b638d09b87ddccd57ee6db4797f179040f26540fab3ea93a990a2b"
   branch = "master"
   name = "github.com/longXboy/smux"
   packages = ["."]
-  revision = "9c97aa9117464d9101996f3c08e06b17480ffe2f"
+  revision = "e222ef54edd6472a710c78e26afa10711dfee093"
 
 [[projects]]
   branch = "master"
@@ -94,13 +94,13 @@ memo = "e69c7fe068b638d09b87ddccd57ee6db4797f179040f26540fab3ea93a990a2b"
   branch = "master"
   name = "golang.org/x/crypto"
   packages = ["blowfish","cast5","pbkdf2","salsa20","salsa20/salsa","tea","twofish","xtea"]
-  revision = "c7af5bf2638a1164f2eb5467c39c6cffbd13a02e"
+  revision = "04eae0b62feaaf659a0ce2c4e8dc70b6ae2fff67"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/net"
   packages = ["bpf","context","internal/iana","internal/netreflect","ipv4"]
-  revision = "da118f7b8e5954f39d0d2130ab35d4bf0e3cb344"
+  revision = "feeb485667d1fdabe727840fe00adc22431bc86e"
 
 [[projects]]
   branch = "master"

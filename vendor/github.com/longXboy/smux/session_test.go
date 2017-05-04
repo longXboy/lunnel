@@ -63,7 +63,7 @@ func TestEcho(t *testing.T) {
 		t.Fatal(err)
 	}
 	session, _ := Client(cli, nil)
-	stream, _ := session.OpenStream()
+	stream, _ := session.OpenStream("")
 	const N = 100
 	buf := make([]byte, 10)
 	var sent string
@@ -90,7 +90,7 @@ func TestSpeed(t *testing.T) {
 		t.Fatal(err)
 	}
 	session, _ := Client(cli, nil)
-	stream, _ := session.OpenStream()
+	stream, _ := session.OpenStream("")
 	t.Log(stream.LocalAddr(), stream.RemoteAddr())
 
 	start := time.Now()
@@ -135,7 +135,7 @@ func TestParallel(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(par)
 	for i := 0; i < par; i++ {
-		stream, _ := session.OpenStream()
+		stream, _ := session.OpenStream("")
 		go func(s *Stream) {
 			buf := make([]byte, 20)
 			for j := 0; j < messages; j++ {
@@ -161,7 +161,7 @@ func TestCloseThenOpen(t *testing.T) {
 	}
 	session, _ := Client(cli, nil)
 	session.Close()
-	if _, err := session.OpenStream(); err == nil {
+	if _, err := session.OpenStream(""); err == nil {
 		t.Fatal("opened after close")
 	}
 }
@@ -172,7 +172,7 @@ func TestStreamDoubleClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	session, _ := Client(cli, nil)
-	stream, _ := session.OpenStream()
+	stream, _ := session.OpenStream("")
 	stream.Close()
 	if err := stream.Close(); err == nil {
 		t.Log("double close doesn't return error")
@@ -191,7 +191,7 @@ func TestConcurrentClose(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(numStreams)
 	for i := 0; i < 100; i++ {
-		stream, _ := session.OpenStream()
+		stream, _ := session.OpenStream("")
 		streams = append(streams, stream)
 	}
 	for _, s := range streams {
@@ -211,7 +211,7 @@ func TestTinyReadBuffer(t *testing.T) {
 		t.Fatal(err)
 	}
 	session, _ := Client(cli, nil)
-	stream, _ := session.OpenStream()
+	stream, _ := session.OpenStream("")
 	const N = 100
 	tinybuf := make([]byte, 6)
 	var sent string
@@ -286,7 +286,7 @@ func TestServerEcho(t *testing.T) {
 	go func() {
 		if conn, err := ln.Accept(); err == nil {
 			session, _ := Server(conn, nil)
-			if stream, err := session.OpenStream(); err == nil {
+			if stream, err := session.OpenStream(""); err == nil {
 				const N = 100
 				buf := make([]byte, 10)
 				for i := 0; i < N; i++ {
@@ -335,7 +335,7 @@ func TestSendWithoutRecv(t *testing.T) {
 		t.Fatal(err)
 	}
 	session, _ := Client(cli, nil)
-	stream, _ := session.OpenStream()
+	stream, _ := session.OpenStream("")
 	const N = 100
 	for i := 0; i < N; i++ {
 		msg := fmt.Sprintf("hello%v", i)
@@ -354,7 +354,7 @@ func TestWriteAfterClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	session, _ := Client(cli, nil)
-	stream, _ := session.OpenStream()
+	stream, _ := session.OpenStream("")
 	stream.Close()
 	if _, err := stream.Write([]byte("write after close")); err == nil {
 		t.Fatal("write after close failed")
@@ -367,7 +367,7 @@ func TestReadStreamAfterSessionClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	session, _ := Client(cli, nil)
-	stream, _ := session.OpenStream()
+	stream, _ := session.OpenStream("")
 	session.Close()
 	buf := make([]byte, 10)
 	if _, err := stream.Read(buf); err != nil {
@@ -383,7 +383,7 @@ func TestWriteStreamAfterConnectionClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	session, _ := Client(cli, nil)
-	stream, _ := session.OpenStream()
+	stream, _ := session.OpenStream("")
 	session.conn.Close()
 	if _, err := stream.Write([]byte("write after connection close")); err == nil {
 		t.Fatal("write after connection close failed")
@@ -396,7 +396,7 @@ func TestNumStreamAfterClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	session, _ := Client(cli, nil)
-	if _, err := session.OpenStream(); err == nil {
+	if _, err := session.OpenStream(""); err == nil {
 		if session.NumStreams() != 1 {
 			t.Fatal("wrong number of streams after opened")
 		}
@@ -504,7 +504,7 @@ func TestReadDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	session, _ := Client(cli, nil)
-	stream, _ := session.OpenStream()
+	stream, _ := session.OpenStream("")
 	const N = 100
 	buf := make([]byte, 10)
 	var readErr error
@@ -532,22 +532,17 @@ func TestWriteDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	session, _ := Client(cli, nil)
-	stream, _ := session.OpenStream()
-	const N = 100
+	stream, _ := session.OpenStream("")
 	buf := make([]byte, 10)
 	var writeErr error
-	for i := 0; i < N; i++ {
+	for {
 		stream.SetWriteDeadline(time.Now().Add(-1 * time.Minute))
 		if _, writeErr = stream.Write(buf); writeErr != nil {
+			if !strings.Contains(writeErr.Error(), "i/o timeout") {
+				t.Fatalf("Wrong error: %v", writeErr)
+			}
 			break
 		}
-	}
-	if writeErr != nil {
-		if !strings.Contains(writeErr.Error(), "i/o timeout") {
-			t.Fatalf("Wrong error: %v", writeErr)
-		}
-	} else {
-		t.Fatal("No error when writing with past deadline")
 	}
 	session.Close()
 }
@@ -559,7 +554,7 @@ func BenchmarkAcceptClose(b *testing.B) {
 	}
 	session, _ := Client(cli, nil)
 	for i := 0; i < b.N; i++ {
-		if stream, err := session.OpenStream(); err == nil {
+		if stream, err := session.OpenStream(""); err == nil {
 			stream.Close()
 		} else {
 			b.Fatal(err)
@@ -608,7 +603,7 @@ func getSmuxStreamPair() (*Stream, *Stream, error) {
 		done <- rerr
 		close(done)
 	}()
-	cs, err := c.OpenStream()
+	cs, err := c.OpenStream("")
 	if err != nil {
 		return nil, nil, err
 	}
