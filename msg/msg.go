@@ -17,6 +17,7 @@ package msg
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"time"
 
@@ -130,7 +131,7 @@ func WriteMsg(w net.Conn, mType MsgType, in interface{}) error {
 	if body != nil {
 		copy(x[4:], body)
 	}
-	w.SetWriteDeadline(time.Now().Add(time.Second * 15))
+	w.SetWriteDeadline(time.Now().Add(time.Second * 12))
 	_, err = w.Write(x)
 	if err != nil {
 		return errors.Wrap(err, "write msg")
@@ -139,19 +140,23 @@ func WriteMsg(w net.Conn, mType MsgType, in interface{}) error {
 	return nil
 }
 
-func ReadMsgWithoutTimeout(r net.Conn) (MsgType, interface{}, error) {
-	return readMsg(r, 0)
+func ReadMsgWithoutDeadline(r net.Conn) (MsgType, interface{}, error) {
+	return readMsg(r)
 }
 
 func ReadMsg(r net.Conn) (MsgType, interface{}, error) {
-	return readMsg(r, time.Second*12)
+	r.SetReadDeadline(time.Now().Add(time.Second * 12))
+	t, o, e := readMsg(r)
+	r.SetReadDeadline(time.Time{})
+	return t, o, e
 }
 
-func readMsg(r net.Conn, timeout time.Duration) (MsgType, interface{}, error) {
+func readMsg(r net.Conn) (MsgType, interface{}, error) {
 	var header []byte = make([]byte, 4)
-	err := readInSize(r, header, timeout)
+
+	_, err := io.ReadFull(r, header)
 	if err != nil {
-		return 0, nil, errors.Wrap(err, "msg readInSize header")
+		return 0, nil, errors.Wrap(err, "io.ReadFull header")
 	}
 
 	var out interface{}
@@ -175,9 +180,9 @@ func readMsg(r net.Conn, timeout time.Duration) (MsgType, interface{}, error) {
 	length := int(header[1])<<16 | int(header[2])<<8 | int(header[3])
 	if length > 0 {
 		body := make([]byte, length)
-		err = readInSize(r, body, timeout)
+		_, err = io.ReadFull(r, body)
 		if err != nil {
-			return 0, nil, errors.Wrap(err, "msg readInSize body")
+			return 0, nil, errors.Wrap(err, "io.ReadFull body")
 		}
 		err = json.Unmarshal(body, out)
 		if err != nil {
@@ -185,30 +190,4 @@ func readMsg(r net.Conn, timeout time.Duration) (MsgType, interface{}, error) {
 		}
 	}
 	return MsgType(header[0]), out, nil
-}
-
-func readInSize(r net.Conn, b []byte, timeout time.Duration) error {
-	size := len(b)
-	bLeft := b
-	remain := size
-	for {
-		if timeout != 0 {
-			r.SetReadDeadline(time.Now().Add(timeout))
-		} else {
-			r.SetReadDeadline(time.Time{})
-		}
-		n, err := r.Read(bLeft)
-		if err != nil {
-			return errors.Wrap(err, "msg readinsize")
-		}
-		if timeout != 0 {
-			r.SetReadDeadline(time.Time{})
-		}
-		remain = remain - n
-		if remain == 0 {
-			return nil
-		} else {
-			bLeft = bLeft[n:]
-		}
-	}
 }

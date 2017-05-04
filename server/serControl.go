@@ -376,10 +376,9 @@ func (c *Control) closePipes() {
 
 func (c *Control) recvLoop() {
 	defer log.CapturePanic()
-
 	atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 	for {
-		mType, body, err := msg.ReadMsgWithoutTimeout(c.ctlConn)
+		mType, body, err := msg.ReadMsgWithoutDeadline(c.ctlConn)
 		if err != nil {
 			log.WithFields(log.Fields{"err": err, "client_Id": c.ClientID.String()}).Warningln("ReadMsgWithoutTimeout in recvLoop failed")
 			c.Close()
