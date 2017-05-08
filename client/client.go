@@ -22,6 +22,7 @@ import (
 	"io"
 	"io/ioutil"
 	rawLog "log"
+	"net"
 	"os"
 	"sync"
 	"time"
@@ -72,24 +73,44 @@ func LoadTLSConfig(rootCertPaths []string) (*tls.Config, error) {
 	return &tls.Config{RootCAs: pool}, nil
 }
 
+func dialServer(transportMode string) (conn net.Conn, err error) {
+	if transportMode == "tcp" {
+		log.WithFields(log.Fields{"server tcp address": cliConf.ServerTcpAddr}).Debugln("create conn to server")
+		conn, err = transport.CreateTCPConn(cliConf.ServerTcpAddr, cliConf.HttpProxy)
+		if err != nil {
+			log.WithFields(log.Fields{"server tcp address": cliConf.ServerTcpAddr, "err": err}).Warnln("create conn to server failed!")
+			return
+		}
+	} else {
+		log.WithFields(log.Fields{"server udp address": cliConf.ServerUdpAddr}).Debugln("create conn to server")
+		conn, err = transport.CreateKCPConn(cliConf.ServerUdpAddr)
+		if err != nil {
+			log.WithFields(log.Fields{"server udp address": cliConf.ServerUdpAddr, "err": err}).Warnln("create conn to server failed!")
+			return
+		}
+	}
+	return
+}
+
 func dialAndRun(transportMode string) {
 	defer time.Sleep(time.Duration(time.Second * reconnectInterval))
-	log.WithFields(log.Fields{"addr": cliConf.ServerAddr, "transportMode": transportMode}).Infoln("trying to create control conn to server")
-	conn, err := transport.CreateConn(cliConf.ServerAddr, transportMode, cliConf.HttpProxy)
+
+	log.WithFields(log.Fields{"transportMode": transportMode}).Infoln("trying to create control conn to server")
+	conn, err := dialServer(transportMode)
 	if err != nil {
-		log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("create ControlAddr conn failed!")
 		return
 	}
 	defer conn.Close()
+
 	chello := msg.ClientHello{EncryptMode: cliConf.EncryptMode, EnableCompress: cliConf.EnableCompress, Version: version.Version}
 	err = msg.WriteMsg(conn, msg.TypeClientHello, chello)
 	if err != nil {
-		log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("write ControlClientHello failed!")
+		log.WithFields(log.Fields{"err": err}).Warnln("write ControlClientHello failed!")
 		return
 	}
 	mType, body, err := msg.ReadMsg(conn)
 	if err != nil {
-		log.WithFields(log.Fields{"server address": cliConf.ServerAddr, "err": err}).Warnln("read server hello failed!")
+		log.WithFields(log.Fields{"err": err}).Warnln("read server hello failed!")
 		return
 	}
 	if mType == msg.TypeError {

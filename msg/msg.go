@@ -153,7 +153,6 @@ func ReadMsg(r net.Conn) (MsgType, interface{}, error) {
 
 func readMsg(r net.Conn) (MsgType, interface{}, error) {
 	var header []byte = make([]byte, 4)
-
 	_, err := io.ReadFull(r, header)
 	if err != nil {
 		return 0, nil, errors.Wrap(err, "io.ReadFull header")
