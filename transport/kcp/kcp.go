@@ -27,10 +27,12 @@ var (
 	interval       = 40
 	resend         = 0
 	noCongestion   = 1
-	SockBuf        = 4194304
+	SockBuf        = 2194304
 	dataShard      = 10
 	parityShard    = 3
 	udpSegmentSize = 1400
+	send_wnd       = 256
+	recv_wnd       = 1024
 )
 
 func Dial(addr string) (net.Conn, error) {
@@ -41,7 +43,7 @@ func Dial(addr string) (net.Conn, error) {
 	}
 	kcpconn.SetStreamMode(true)
 	kcpconn.SetNoDelay(noDelay, interval, resend, noCongestion)
-	kcpconn.SetWindowSize(128, 1024)
+	kcpconn.SetWindowSize(send_wnd, recv_wnd)
 	kcpconn.SetMtu(udpSegmentSize)
 	kcpconn.SetACKNoDelay(false)
 
@@ -97,7 +99,7 @@ func (l *Listener) Accept() (net.Conn, error) {
 	conn.SetStreamMode(true)
 	conn.SetNoDelay(noDelay, interval, resend, noCongestion)
 	conn.SetMtu(udpSegmentSize)
-	conn.SetWindowSize(1024, 1024)
+	conn.SetWindowSize(send_wnd, recv_wnd)
 	conn.SetACKNoDelay(false)
 	return conn, nil
 }

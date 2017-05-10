@@ -107,6 +107,22 @@ type AddTunnels struct {
 	Tunnels map[string]Tunnel
 }
 
+func writeFull(w io.Writer, buf []byte) (err error) {
+	want := len(buf)
+	n := 0
+	for n < want && err == nil {
+		var nn int
+		nn, err = w.Write(buf[n:])
+		n += nn
+	}
+	if n == want {
+		err = nil
+	} else {
+		err = fmt.Errorf("write full n(%d) not match want(%d)", n, want)
+	}
+	return
+}
+
 func WriteMsg(w net.Conn, mType MsgType, in interface{}) error {
 	var length int
 	var body []byte
@@ -131,10 +147,11 @@ func WriteMsg(w net.Conn, mType MsgType, in interface{}) error {
 	if body != nil {
 		copy(x[4:], body)
 	}
+
 	w.SetWriteDeadline(time.Now().Add(time.Second * 12))
-	_, err = w.Write(x)
+	err = writeFull(w, x)
 	if err != nil {
-		return errors.Wrap(err, "write msg")
+		return errors.Wrap(err, "write full msg")
 	}
 	w.SetWriteDeadline(time.Time{})
 	return nil
