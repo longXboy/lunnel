@@ -22,7 +22,7 @@ memo = "e69c7fe068b638d09b87ddccd57ee6db4797f179040f26540fab3ea93a990a2b"
   branch = "master"
   name = "github.com/getsentry/raven-go"
   packages = ["."]
-  revision = "b68337dbf03e7fbb53d9fd9b63fd09b28e8f13f7"
+  revision = "5c07ee42021d8df0718f06bc7ea6b17123a44f9c"
 
 [[projects]]
   name = "github.com/gin-gonic/gin"
@@ -34,7 +34,7 @@ memo = "e69c7fe068b638d09b87ddccd57ee6db4797f179040f26540fab3ea93a990a2b"
   branch = "master"
   name = "github.com/golang/protobuf"
   packages = ["proto"]
-  revision = "2bba0603135d7d7f5cb73b2125beeda19c09f4ef"
+  revision = "b50ceb1fa9818fa4d78b016c2d4ae025593a7ce3"
 
 [[projects]]
   branch = "master"
@@ -58,7 +58,7 @@ memo = "e69c7fe068b638d09b87ddccd57ee6db4797f179040f26540fab3ea93a990a2b"
   branch = "master"
   name = "github.com/longXboy/smux"
   packages = ["."]
-  revision = "9c97aa9117464d9101996f3c08e06b17480ffe2f"
+  revision = "e222ef54edd6472a710c78e26afa10711dfee093"
 
 [[projects]]
   branch = "master"
@@ -76,7 +76,7 @@ memo = "e69c7fe068b638d09b87ddccd57ee6db4797f179040f26540fab3ea93a990a2b"
   branch = "master"
   name = "github.com/pkg/errors"
   packages = ["."]
-  revision = "ff09b135c25aae272398c51a07235b90a75aa4f0"
+  revision = "c605e284fe17294bda444b34710735b29d1a9d90"
 
 [[projects]]
   name = "github.com/satori/go.uuid"
@@ -94,13 +94,13 @@ memo = "e69c7fe068b638d09b87ddccd57ee6db4797f179040f26540fab3ea93a990a2b"
   branch = "master"
   name = "golang.org/x/crypto"
   packages = ["blowfish","cast5","pbkdf2","salsa20","salsa20/salsa","tea","twofish","xtea"]
-  revision = "c7af5bf2638a1164f2eb5467c39c6cffbd13a02e"
+  revision = "122d919ec1efcfb58483215da23f815853e24b81"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/net"
   packages = ["bpf","context","internal/iana","internal/netreflect","ipv4"]
-  revision = "da118f7b8e5954f39d0d2130ab35d4bf0e3cb344"
+  revision = "c9b681d35165f1995d6f3034e61f8761d4b90c99"
 
 [[projects]]
   branch = "master"
