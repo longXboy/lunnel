@@ -222,7 +222,6 @@ func (c *Control) recvLoop() {
 		atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 		switch mType {
 		case msg.TypePong:
-			log.Infoln("recv pong")
 		case msg.TypePing:
 			select {
 			case c.writeChan <- writeReq{msg.TypePong, nil}:
@@ -337,10 +336,13 @@ func (c *Control) Run() {
 	for {
 		select {
 		case <-ticker.C:
-			if (uint64(time.Now().UnixNano()) - atomic.LoadUint64(&c.lastRead)) > uint64(cliConf.Health.TimeOut*int64(time.Second)) {
+			lastRead := atomic.LoadUint64(&c.lastRead)
+			if (uint64(time.Now().UnixNano()) - lastRead) > uint64(cliConf.Health.TimeOut*int64(time.Second)) {
 				log.WithFields(log.Fields{"client_id": c.ClientID.String()}).Warningln("recv server ping time out!")
 				c.Close()
 				return
+			} else {
+				log.Infoln("last read:", lastRead/1000000000)
 			}
 			select {
 			case c.writeChan <- writeReq{msg.TypePing, nil}:
