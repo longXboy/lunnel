@@ -20,15 +20,16 @@ import (
 	"io"
 )
 
-var initialVector = []byte{55, 33, 111, 156, 18, 172, 34, 2, 164, 99, 252, 122, 252, 133, 12, 55}
+var initialVector = []byte{55, 33, 111, 156, 18, 172, 34, 2, 164, 99, 252, 122, 252, 133, 12, 90, 167, 115, 79, 156, 18, 172, 27, 1, 164, 21, 242, 193, 252, 120, 230, 107}
 
 type cryptoStream struct {
-	rawConn io.ReadWriteCloser
-	encbuf  []byte
-	decbuf  []byte
-	encNum  int
-	decNum  int
-	block   cipher.Block
+	rawConn   io.ReadWriteCloser
+	encbuf    []byte
+	decbuf    []byte
+	encNum    int
+	decNum    int
+	block     cipher.Block
+	blockSize int
 }
 
 func NewCryptoStream(conn io.ReadWriteCloser, key []byte) (*cryptoStream, error) {
@@ -39,6 +40,7 @@ func NewCryptoStream(conn io.ReadWriteCloser, key []byte) (*cryptoStream, error)
 		return nil, err
 	}
 	c.block = block
+	c.blockSize = block.BlockSize()
 	c.encbuf = make([]byte, block.BlockSize())
 	copy(c.encbuf, initialVector[:block.BlockSize()])
 	c.decbuf = make([]byte, block.BlockSize())
@@ -64,26 +66,45 @@ func (c *cryptoStream) Close() error {
 	return c.rawConn.Close()
 }
 
+//http://blog.csdn.net/charleslei/article/details/48710293
 func (c *cryptoStream) encrypt(dst, src []byte) {
-	encrypt(c.block, dst, src, c.encbuf, &c.encNum)
+	base := 0
+	if c.encNum != 0 || len(src) < c.blockSize {
+		if c.encNum == 0 {
+			c.block.Encrypt(c.encbuf, c.encbuf)
+		}
+		for ; base < c.blockSize-c.encNum && base < len(src); base++ {
+			c.encbuf[c.encNum] ^= src[base]
+			dst[base] = c.encbuf[c.encNum]
+			c.encNum++
+		}
+		c.encNum = c.encNum % 16
+	}
+
+	for ; (base + c.blockSize) < len(src); base += c.blockSize {
+		if c.encNum == 0 {
+			c.block.Encrypt(c.encbuf, c.encbuf)
+		}
+		xorWords(dst[base:], src[base:], c.encbuf)
+		copy(c.encbuf, dst[base:base+c.blockSize])
+		c.encNum = 0
+	}
+
+	if base < len(src) {
+		if c.encNum == 0 {
+			c.block.Encrypt(c.encbuf, c.encbuf)
+		}
+		for ; base < c.blockSize-c.encNum && base < len(src); base++ {
+			c.encbuf[c.encNum] ^= src[base]
+			dst[base] = c.encbuf[c.encNum]
+			c.encNum++
+		}
+		c.encNum = c.encNum % 16
+	}
 }
 
 func (c *cryptoStream) decrypt(dst, src []byte) {
 	decrypt(c.block, dst, src, c.decbuf, &c.decNum)
-}
-
-//http://blog.csdn.net/charleslei/article/details/48710293
-func encrypt(block cipher.Block, dst, src, ivec []byte, num *int) {
-	n := *num
-	for l := 0; l < len(src); l++ {
-		if n == 0 {
-			block.Encrypt(ivec, ivec)
-		}
-		ivec[n] ^= src[l]
-		dst[l] = ivec[n]
-		n = (n + 1) % block.BlockSize()
-	}
-	*num = n
 }
 
 func decrypt(block cipher.Block, dst, src, ivec []byte, num *int) {
