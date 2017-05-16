@@ -26,6 +26,7 @@ type cryptoStream struct {
 	rawConn   io.ReadWriteCloser
 	encbuf    []byte
 	decbuf    []byte
+	temp      []byte
 	encNum    int
 	decNum    int
 	block     cipher.Block
@@ -41,10 +42,16 @@ func NewCryptoStream(conn io.ReadWriteCloser, key []byte) (*cryptoStream, error)
 	}
 	c.block = block
 	c.blockSize = block.BlockSize()
+
 	c.encbuf = make([]byte, block.BlockSize())
 	copy(c.encbuf, initialVector[:block.BlockSize()])
+	c.block.Encrypt(c.encbuf, c.encbuf)
+
 	c.decbuf = make([]byte, block.BlockSize())
 	copy(c.decbuf, initialVector[:block.BlockSize()])
+	c.block.Encrypt(c.decbuf, c.decbuf)
+
+	c.temp = make([]byte, block.BlockSize())
 	return c, nil
 }
 
@@ -69,55 +76,76 @@ func (c *cryptoStream) Close() error {
 //http://blog.csdn.net/charleslei/article/details/48710293
 func (c *cryptoStream) encrypt(dst, src []byte) {
 	base := 0
+
 	if c.encNum != 0 || len(src) < c.blockSize {
-		if c.encNum == 0 {
+		size := c.blockSize - c.encNum
+		if size > len(src) {
+			size = len(src)
+		}
+		xorBytes(dst[0:size], src[0:size], c.encbuf[c.encNum:c.encNum+size])
+		copy(c.encbuf[c.encNum:c.encNum+size], dst[0:size])
+		base += size
+		c.encNum = c.encNum + size
+		if c.encNum == c.blockSize {
+			c.encNum = 0
 			c.block.Encrypt(c.encbuf, c.encbuf)
 		}
-		for ; base < c.blockSize-c.encNum && base < len(src); base++ {
-			c.encbuf[c.encNum] ^= src[base]
-			dst[base] = c.encbuf[c.encNum]
-			c.encNum++
-		}
-		c.encNum = c.encNum % 16
 	}
 
-	for ; (base + c.blockSize) < len(src); base += c.blockSize {
-		if c.encNum == 0 {
-			c.block.Encrypt(c.encbuf, c.encbuf)
-		}
-		xorWords(dst[base:], src[base:], c.encbuf)
-		copy(c.encbuf, dst[base:base+c.blockSize])
-		c.encNum = 0
+	for ; (base + c.blockSize) <= len(src); base += c.blockSize {
+		xorWords(dst[base:base+c.blockSize], src[base:base+c.blockSize], c.encbuf)
+		c.block.Encrypt(c.encbuf, dst[base:base+c.blockSize])
 	}
 
+	//encrypt the remained bytes
 	if base < len(src) {
-		if c.encNum == 0 {
+		size := len(src) - base
+		xorBytes(dst[base:base+size], src[base:base+size], c.encbuf[c.encNum:c.encNum+size])
+		copy(c.encbuf[c.encNum:c.encNum+size], dst[base:base+size])
+		c.encNum = c.encNum + size
+		if c.encNum == c.blockSize {
+			c.encNum = 0
 			c.block.Encrypt(c.encbuf, c.encbuf)
 		}
-		for ; base < c.blockSize-c.encNum && base < len(src); base++ {
-			c.encbuf[c.encNum] ^= src[base]
-			dst[base] = c.encbuf[c.encNum]
-			c.encNum++
-		}
-		c.encNum = c.encNum % 16
 	}
 }
 
 func (c *cryptoStream) decrypt(dst, src []byte) {
-	decrypt(c.block, dst, src, c.decbuf, &c.decNum)
-}
+	base := 0
 
-func decrypt(block cipher.Block, dst, src, ivec []byte, num *int) {
-	n := *num
-	for l := 0; l < len(src); l++ {
-		var c byte
-		if n == 0 {
-			block.Encrypt(ivec, ivec)
+	if c.encNum != 0 || len(src) < c.blockSize {
+		size := c.blockSize - c.encNum
+		if size > len(src) {
+			size = len(src)
 		}
-		c = src[l]
-		dst[l] = ivec[n] ^ c
-		ivec[n] = c
-		n = (n + 1) % block.BlockSize()
+		copy(c.temp[:size], src[:size])
+		xorBytes(dst[:size], src[:size], c.encbuf[c.encNum:c.encNum+size])
+		copy(c.encbuf[c.encNum:c.encNum+size], c.temp[:size])
+		base += size
+		c.encNum = c.encNum + size
+		if c.encNum == c.blockSize {
+			c.encNum = 0
+			c.block.Encrypt(c.encbuf, c.encbuf)
+		}
 	}
-	*num = n
+
+	for ; (base + c.blockSize) <= len(src); base += c.blockSize {
+		//we must copy src to temp first,in case of dst and src point to the same memory address
+		copy(c.temp, src[base:base+c.blockSize])
+		xorWords(dst[base:base+c.blockSize], src[base:base+c.blockSize], c.encbuf)
+		c.block.Encrypt(c.encbuf, c.temp)
+	}
+
+	//decrypt the remained bytes
+	if base < len(src) {
+		size := len(src) - base
+		copy(c.temp[:size], src[base:base+size])
+		xorBytes(dst[base:base+size], src[base:base+size], c.encbuf[c.encNum:c.encNum+size])
+		copy(c.encbuf[c.encNum:c.encNum+size], c.temp[:size])
+		c.encNum = c.encNum + size
+		if c.encNum == c.blockSize {
+			c.encNum = 0
+			c.block.Encrypt(c.encbuf, c.encbuf)
+		}
+	}
 }
