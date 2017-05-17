@@ -77,6 +77,7 @@ type Config struct {
 	DurableFile    string `yaml:"durable_file,omitempty"`
 	Health         Health `yaml:"health,omitempty"`
 	ManagePort     uint16 `yaml:"manage_port,omitempty"`
+	DisableManage  bool   `yaml:"disable_manage,omitempty"`
 }
 
 var cliConf Config

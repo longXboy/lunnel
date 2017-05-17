@@ -21,8 +21,11 @@ import (
 	"github.com/longXboy/lunnel/version"
 )
 
-const badGateWayTemplate string = "HTTP/1.1 502 Bad Gateway\r\nServer: lunnel/%s\r\nDate: %s\r\nContent-Length: 35\r\n\r\nBad GateWay: proxy_tunnel_not_found"
+var badGateWayBody = "lunnel\nBad GateWay: proxy_tunnel_not_found(%s)"
 
-func BadGateWayResp() string {
-	return fmt.Sprintf(badGateWayTemplate, version.Version, time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT"))
+const badGateWayTemplate string = "HTTP/1.1 502 Bad Gateway\r\nServer: lunnel/%s\r\nDate: %s\r\nContent-Length: %d\r\n\r\n%s"
+
+func BadGateWayResp(tunnel string) string {
+	out := fmt.Sprintf(badGateWayBody, tunnel)
+	return fmt.Sprintf(badGateWayTemplate, version.Version, time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT"), len(out), out)
 }

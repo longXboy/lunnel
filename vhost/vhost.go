@@ -235,8 +235,15 @@ func GetHttpRequestInfo(c net.Conn) (_ net.Conn, _ map[string]string, err error)
 	if err != nil {
 		return sc, reqInfoMap, err
 	}
+
+	host := request.Host
+	xHost := request.Header.Get("X-HOST")
+	if xHost != "" {
+		host = xHost
+	}
 	// hostName
-	tmpArr := strings.Split(request.Host, ":")
+	tmpArr := strings.Split(host, ":")
+
 	reqInfoMap["Host"] = tmpArr[0]
 	reqInfoMap["Path"] = request.URL.Path
 	reqInfoMap["Scheme"] = request.URL.Scheme

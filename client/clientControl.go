@@ -315,17 +315,19 @@ func (c *Control) serveHttp(lis net.Listener) {
 func (c *Control) Run() {
 	defer c.ctlConn.Close()
 
-	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", "0.0.0.0", cliConf.ManagePort))
-	if err != nil {
-		c.Close()
-		log.WithFields(log.Fields{"port": cliConf.ManagePort, "err": err}).Fatalln("listen manage port failed!")
-		return
+	if !cliConf.DisableManage {
+		lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", "0.0.0.0", cliConf.ManagePort))
+		if err != nil {
+			c.Close()
+			log.WithFields(log.Fields{"port": cliConf.ManagePort, "err": err}).Fatalln("listen manage port failed!")
+			return
+		}
+		defer lis.Close()
+		go c.serveHttp(lis)
 	}
-	defer lis.Close()
 
 	go c.recvLoop()
 	go c.writeLoop()
-	go c.serveHttp(lis)
 
 	sigChan := make(chan os.Signal)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)

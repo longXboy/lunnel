@@ -240,7 +240,7 @@ func handleHttpConn(conn net.Conn) {
 		conn.SetDeadline(time.Time{})
 		proxyConn(sconn, tunnel.ctl, tunnel.name)
 	} else {
-		sconn.Write([]byte(vhost.BadGateWayResp()))
+		sconn.Write([]byte(vhost.BadGateWayResp(fmt.Sprintf("http://%s:%d", info["Host"], serverConf.HttpPort))))
 	}
 }
 
