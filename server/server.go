@@ -142,7 +142,7 @@ func handleConn(conn net.Conn) {
 			underlyingConn = transport.NewCompStream(underlyingConn)
 		}
 		smuxConfig := smux.DefaultConfig()
-		smuxConfig.MaxReceiveBuffer = 419430
+		smuxConfig.MaxReceiveBuffer = 1194304
 		sess, err := smux.Server(underlyingConn, smuxConfig)
 		if err != nil {
 			underlyingConn.Close()

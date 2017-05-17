@@ -433,7 +433,7 @@ func (c *Control) pipeHandShake(conn net.Conn) (*smux.Session, error) {
 		return nil, errors.Wrap(err, "write pipe handshake")
 	}
 	smuxConfig := smux.DefaultConfig()
-	smuxConfig.MaxReceiveBuffer = 4194304
+	smuxConfig.MaxReceiveBuffer = 1194304
 	var mux *smux.Session
 	var underlyingConn io.ReadWriteCloser
 	if c.encryptMode != "none" {

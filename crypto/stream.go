@@ -113,39 +113,39 @@ func (c *cryptoStream) encrypt(dst, src []byte) {
 func (c *cryptoStream) decrypt(dst, src []byte) {
 	base := 0
 
-	if c.encNum != 0 || len(src) < c.blockSize {
-		size := c.blockSize - c.encNum
+	if c.decNum != 0 || len(src) < c.blockSize {
+		size := c.blockSize - c.decNum
 		if size > len(src) {
 			size = len(src)
 		}
 		copy(c.temp[:size], src[:size])
-		xorBytes(dst[:size], src[:size], c.encbuf[c.encNum:c.encNum+size])
-		copy(c.encbuf[c.encNum:c.encNum+size], c.temp[:size])
+		xorBytes(dst[:size], src[:size], c.decbuf[c.decNum:c.decNum+size])
+		copy(c.decbuf[c.decNum:c.decNum+size], c.temp[:size])
 		base += size
-		c.encNum = c.encNum + size
-		if c.encNum == c.blockSize {
-			c.encNum = 0
-			c.block.Encrypt(c.encbuf, c.encbuf)
+		c.decNum = c.decNum + size
+		if c.decNum == c.blockSize {
+			c.decNum = 0
+			c.block.Encrypt(c.decbuf, c.decbuf)
 		}
 	}
 
 	for ; (base + c.blockSize) <= len(src); base += c.blockSize {
 		//we must copy src to temp first,in case of dst and src point to the same memory address
 		copy(c.temp, src[base:base+c.blockSize])
-		xorWords(dst[base:base+c.blockSize], src[base:base+c.blockSize], c.encbuf)
-		c.block.Encrypt(c.encbuf, c.temp)
+		xorWords(dst[base:base+c.blockSize], src[base:base+c.blockSize], c.decbuf)
+		c.block.Encrypt(c.decbuf, c.temp)
 	}
 
 	//decrypt the remained bytes
 	if base < len(src) {
 		size := len(src) - base
 		copy(c.temp[:size], src[base:base+size])
-		xorBytes(dst[base:base+size], src[base:base+size], c.encbuf[c.encNum:c.encNum+size])
-		copy(c.encbuf[c.encNum:c.encNum+size], c.temp[:size])
-		c.encNum = c.encNum + size
-		if c.encNum == c.blockSize {
-			c.encNum = 0
-			c.block.Encrypt(c.encbuf, c.encbuf)
+		xorBytes(dst[base:base+size], src[base:base+size], c.decbuf[c.decNum:c.decNum+size])
+		copy(c.decbuf[c.decNum:c.decNum+size], c.temp[:size])
+		c.decNum = c.decNum + size
+		if c.decNum == c.blockSize {
+			c.decNum = 0
+			c.block.Encrypt(c.decbuf, c.decbuf)
 		}
 	}
 }

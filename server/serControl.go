@@ -42,6 +42,9 @@ var cleanInterval time.Duration = time.Second * 60
 var ControlMapLock sync.RWMutex
 var ControlMap = make(map[uuid.UUID]*Control)
 
+var OldTunnelLock sync.Mutex
+var OldTunnelMap = make(map[uuid.UUID]map[string]msg.Tunnel)
+
 var subDomainIdx uint64
 
 var TunnelMapLock sync.RWMutex
@@ -255,8 +258,8 @@ func (c *Control) getIdleFast() (idle *pipeNode) {
 
 func (c *Control) pipeManage() {
 	defer log.CapturePanic()
-
 	defer c.closePipes()
+
 	var available *smux.Session
 	ticker := time.NewTicker(cleanInterval)
 	defer ticker.Stop()
@@ -333,20 +336,19 @@ func (c *Control) Close() {
 	c.cancel()
 }
 
-func (c *Control) closeTunnels() []*Tunnel {
+func (c *Control) closeTunnels() map[string]msg.Tunnel {
 	log.WithField("clientId", c.ClientID).Debugln("ready to close tunnels")
-	var tunnels []*Tunnel
+	tunnelConfigMap := make(map[string]msg.Tunnel)
 	c.tunnelLock.Lock()
 	for _, t := range c.tunnels {
 		t.Close()
-		tunnels = append(tunnels, t)
+		tunnelConfigMap[t.name] = t.tunnelConfig
 	}
 	c.tunnelLock.Unlock()
-	return tunnels
+	return tunnelConfigMap
 }
 
 func (c *Control) closePipes() {
-	log.WithField("clientId", c.ClientID).Debugln("ready to close pipes")
 	idle := c.idlePipes
 	for {
 		if idle == nil {
@@ -372,10 +374,13 @@ func (c *Control) closePipes() {
 		busy = busy.next
 	}
 	c.busyPipes = nil
+	log.WithField("clientId", c.ClientID).Debugln("close pipes")
 }
 
 func (c *Control) recvLoop() {
 	defer log.CapturePanic()
+	defer log.WithField("clientId", c.ClientID).Debugln("close recvLoop")
+
 	atomic.StoreUint64(&c.lastRead, uint64(time.Now().UnixNano()))
 	for {
 		mType, body, err := msg.ReadMsgWithoutDeadline(c.ctlConn)
@@ -409,6 +414,7 @@ func (c *Control) recvLoop() {
 
 func (c *Control) writeLoop() {
 	defer log.CapturePanic()
+	defer log.WithField("clientId", c.ClientID).Debugln("close writeLoop")
 
 	lastWrite := time.Now()
 	idx := 0
@@ -440,8 +446,21 @@ func (c *Control) writeLoop() {
 }
 
 func (c *Control) Serve() {
+	defer func() {
+		ControlMapLock.Lock()
+		ctl, isok := ControlMap[c.ClientID]
+		if isok && ctl == c {
+			delete(ControlMap, c.ClientID)
+		}
+		ControlMapLock.Unlock()
+
+		tunnelsMap := c.closeTunnels()
+		OldTunnelLock.Lock()
+		OldTunnelMap[c.ClientID] = tunnelsMap
+		OldTunnelLock.Unlock()
+		defer log.WithField("clientId", c.ClientID).Debugln("close mainLoop")
+	}()
 	defer c.ctlConn.Close()
-	defer c.closeTunnels()
 
 	go c.recvLoop()
 	go c.writeLoop()
@@ -682,20 +701,35 @@ func (c *Control) ServerHandShake() error {
 		return errors.Wrap(err, "Write ClientId")
 	}
 
-	ControlMapLock.Lock()
-	old, isok := ControlMap[c.ClientID]
-	ControlMap[c.ClientID] = c
-	ControlMapLock.Unlock()
-	if isok {
-		oldTunnels := old.closeTunnels()
-		for _, oldTunnel := range oldTunnels {
-			c.tunnels[oldTunnel.name] = oldTunnel
+	if chello.ClientID != nil {
+		ControlMapLock.RLock()
+		old, isok := ControlMap[c.ClientID]
+		ControlMapLock.RUnlock()
+		var oldTunnelsMap map[string]msg.Tunnel
+		if isok {
+			oldTunnelsMap = old.closeTunnels()
+			for name, oldTunnel := range oldTunnelsMap {
+				c.tunnels[name] = &Tunnel{isClosed: true, name: name, tunnelConfig: oldTunnel}
+			}
+		} else {
+			OldTunnelLock.Lock()
+			oldTunnelsMap, isok = OldTunnelMap[c.ClientID]
+			if isok {
+				delete(OldTunnelMap, c.ClientID)
+			}
+			OldTunnelLock.Unlock()
+			if isok {
+				for name, oldTunnel := range oldTunnelsMap {
+					c.tunnels[name] = &Tunnel{isClosed: true, name: name, tunnelConfig: oldTunnel}
+				}
+			}
 		}
-		c.tunnelLock = old.tunnelLock
 	}
+
 	ControlMapLock.Lock()
 	ControlMap[c.ClientID] = c
 	ControlMapLock.Unlock()
+
 	return nil
 }
 
@@ -707,7 +741,7 @@ func PipeHandShake(conn net.Conn, phs *msg.PipeClientHello) error {
 		return errors.Errorf("invalid phs.client_id %s", phs.ClientID.String())
 	}
 	smuxConfig := smux.DefaultConfig()
-	smuxConfig.MaxReceiveBuffer = 4194304
+	smuxConfig.MaxReceiveBuffer = 1194304
 	var err error
 	var sess *smux.Session
 	var underlyingConn io.ReadWriteCloser

@@ -27,12 +27,12 @@ var (
 	interval       = 40
 	resend         = 0
 	noCongestion   = 1
-	SockBuf        = 2194304
+	SockBuf        = 1194304
 	dataShard      = 10
 	parityShard    = 3
 	udpSegmentSize = 1400
-	send_wnd       = 256
-	recv_wnd       = 1024
+	send_wnd       = 128
+	recv_wnd       = 512
 )
 
 func Dial(addr string) (net.Conn, error) {

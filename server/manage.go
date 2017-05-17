@@ -67,7 +67,7 @@ func listenAndServeManage() {
 
 	mux := http.NewServeMux()
 	if serverConf.PProfEnable {
-		netbug.RegisterHandler("/pprof/", mux)
+		netbug.RegisterHandler("/debug/pprof/", mux)
 	}
 	mux.Handle("/v1/", r)
 

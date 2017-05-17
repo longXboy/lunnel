@@ -145,7 +145,7 @@ func dialAndRun(transportMode string) {
 		underlyingConn = transport.NewCompStream(underlyingConn)
 	}
 	smuxConfig := smux.DefaultConfig()
-	smuxConfig.MaxReceiveBuffer = 4194304
+	smuxConfig.MaxReceiveBuffer = 1194304
 	sess, err := smux.Client(underlyingConn, smuxConfig)
 	if err != nil {
 		underlyingConn.Close()
