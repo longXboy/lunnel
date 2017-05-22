@@ -107,10 +107,10 @@ func LoadConfig(configDetail []byte, configType string) error {
 		serverConf.DSN = "https://22946d46117c4bac9e680bf10597c564:e904ecd5c94e46c2aa9d15dcae90ac80@sentry.io/156456"
 	}
 	if serverConf.Health.Interval == 0 {
-		serverConf.Health.Interval = 20
+		serverConf.Health.Interval = 30
 	}
 	if serverConf.Health.TimeOut == 0 {
-		serverConf.Health.TimeOut = 50
+		serverConf.Health.TimeOut = 65
 	}
 	if serverConf.MaxIdlePipes == "" {
 		serverConf.MaxIdlePipes = "4"

@@ -742,6 +742,7 @@ func PipeHandShake(conn net.Conn, phs *msg.PipeClientHello) error {
 	}
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.MaxReceiveBuffer = 1194304
+	smuxConfig.IdleStreamTimeout = time.Minute * 30
 	var err error
 	var sess *smux.Session
 	var underlyingConn io.ReadWriteCloser

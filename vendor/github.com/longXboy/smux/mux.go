@@ -17,6 +17,9 @@ type Config struct {
 	// will be closed if no data has arrived
 	KeepAliveTimeout time.Duration
 
+	//IdleStreamTimeout is when the stream will be closed while not recving or sending data
+	IdleStreamTimeout time.Duration
+
 	// MaxFrameSize is used to control the maximum
 	// frame size to sent to the remote
 	MaxFrameSize int

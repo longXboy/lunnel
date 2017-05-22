@@ -15,6 +15,7 @@ import (
 type Stream struct {
 	id            uint32
 	rstflag       int32
+	activeTs      uint32
 	sess          *Session
 	buffer        bytes.Buffer
 	bufferLock    sync.Mutex
@@ -36,6 +37,7 @@ func newStream(id uint32, frameSize int, sess *Session, data string) *Stream {
 	s.sess = sess
 	s.die = make(chan struct{})
 	s.tunnelName = data
+	s.activeTs = uint32(time.Now().Unix())
 	return s
 }
 
@@ -58,13 +60,6 @@ func (s *Stream) Read(b []byte) (n int, err error) {
 	}
 
 READ:
-	select {
-	case <-s.die:
-		return 0, errors.New(errBrokenPipe)
-	case <-deadline:
-		return n, errTimeout
-	default:
-	}
 
 	s.bufferLock.Lock()
 	n, err = s.buffer.Read(b)
@@ -103,6 +98,7 @@ func (s *Stream) Write(b []byte) (n int, err error) {
 	default:
 	}
 
+	atomic.StoreUint32(&s.activeTs, uint32(time.Now().Unix()))
 	frames := s.split(b, cmdPSH, s.id)
 	sent := 0
 	for k := range frames {

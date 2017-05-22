@@ -194,10 +194,10 @@ func LoadConfig(configDetail []byte, configType string) error {
 		}
 	}
 	if cliConf.Health.Interval == 0 {
-		cliConf.Health.Interval = 20
+		cliConf.Health.Interval = 30
 	}
 	if cliConf.Health.TimeOut == 0 {
-		cliConf.Health.TimeOut = 50
+		cliConf.Health.TimeOut = 65
 	}
 	if cliConf.ManagePort == 0 {
 		cliConf.ManagePort = 8082

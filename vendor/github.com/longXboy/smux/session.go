@@ -45,6 +45,7 @@ type Session struct {
 	streamLock sync.Mutex         // locks streams
 
 	die       chan struct{} // flag session has died
+	sendDie   chan struct{}
 	dieLock   sync.Mutex
 	chAccepts chan *Stream
 
@@ -64,6 +65,7 @@ func newSession(config *Config, conn io.ReadWriteCloser, client bool) *Session {
 	s.config = config
 	s.streams = make(map[uint32]*Stream)
 	s.chAccepts = make(chan *Stream, defaultAcceptBacklog)
+	s.sendDie = make(chan struct{})
 	s.bucket = int32(config.MaxReceiveBuffer)
 	s.bucketNotify = make(chan struct{}, 1)
 	s.writes = make(chan writeRequest)
@@ -76,6 +78,9 @@ func newSession(config *Config, conn io.ReadWriteCloser, client bool) *Session {
 	go s.recvLoop()
 	go s.sendLoop()
 	go s.keepalive()
+	if int64(s.config.IdleStreamTimeout) > 0 {
+		go s.idleManage()
+	}
 	return s
 }
 
@@ -134,6 +139,29 @@ func (s *Session) AcceptStream() (*Stream, error) {
 	}
 }
 
+func (s *Session) finish() (err error) {
+	s.dieLock.Lock()
+
+	select {
+	case <-s.die:
+		s.dieLock.Unlock()
+		return errors.New(errBrokenPipe)
+	default:
+		s.writeFrame(newFrame(cmdNOP, 0))
+		close(s.die)
+		s.dieLock.Unlock()
+		close(s.sendDie)
+		s.streamLock.Lock()
+		for k := range s.streams {
+			s.streams[k].sessionClose()
+		}
+		s.streamLock.Unlock()
+		s.notifyBucket()
+		return s.conn.Close()
+	}
+
+}
+
 // Close is used to close the session and all streams.
 func (s *Session) Close() (err error) {
 	s.dieLock.Lock()
@@ -143,6 +171,7 @@ func (s *Session) Close() (err error) {
 		s.dieLock.Unlock()
 		return errors.New(errBrokenPipe)
 	default:
+		s.writeFrame(newFrame(cmdNOP, 0))
 		close(s.die)
 		s.dieLock.Unlock()
 		s.streamLock.Lock()
@@ -151,7 +180,30 @@ func (s *Session) Close() (err error) {
 		}
 		s.streamLock.Unlock()
 		s.notifyBucket()
-		return s.conn.Close()
+
+		go func() {
+			defer func() {
+				close(s.sendDie)
+				s.conn.Close()
+			}()
+
+			deadLine := time.NewTimer(time.Second * 60)
+			defer deadLine.Stop()
+
+			f := newFrame(cmdSESSFIN, 0)
+			req := writeRequest{
+				frame:  f,
+				result: make(chan writeResult, 1),
+			}
+			select {
+			case <-deadLine.C:
+				return
+			case s.writes <- req:
+			}
+
+			<-deadLine.C
+		}()
+		return
 	}
 }
 
@@ -246,6 +298,9 @@ func (s *Session) recvLoop() {
 
 			switch f.cmd {
 			case cmdNOP:
+			case cmdSESSFIN:
+				s.finish()
+				return
 			case cmdSYN:
 				s.streamLock.Lock()
 				if _, ok := s.streams[f.sid]; !ok {
@@ -257,6 +312,7 @@ func (s *Session) recvLoop() {
 					}
 				}
 				s.streamLock.Unlock()
+
 			case cmdFIN:
 				s.streamLock.Lock()
 				if stream, ok := s.streams[f.sid]; ok {
@@ -270,14 +326,46 @@ func (s *Session) recvLoop() {
 					atomic.AddInt32(&s.bucket, -int32(len(f.data)))
 					stream.pushBytes(f.data)
 					stream.notifyReadEvent()
+					atomic.StoreUint32(&stream.activeTs, uint32(time.Now().Unix()))
 				}
 				s.streamLock.Unlock()
 			default:
-				s.Close()
+				s.finish()
 				return
 			}
 		} else {
-			s.Close()
+			s.finish()
+			return
+		}
+	}
+}
+
+func _itimediff(later, earlier uint32) int32 {
+	return (int32)(later - earlier)
+}
+
+func (s *Session) idleManage() {
+	timeOut := int32(int64(s.config.IdleStreamTimeout) / 1000000000)
+
+	ticker := time.NewTicker(s.config.IdleStreamTimeout / 30)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			var streams []*Stream
+			s.streamLock.Lock()
+			for _, stream := range s.streams {
+				streams = append(streams, stream)
+			}
+			s.streamLock.Unlock()
+			now := uint32(time.Now().Unix())
+			for i := range streams {
+				ts := atomic.LoadUint32(&streams[i].activeTs)
+				if _itimediff(now, ts) > timeOut {
+					streams[i].Close()
+				}
+			}
+		case <-s.die:
 			return
 		}
 	}
@@ -286,6 +374,7 @@ func (s *Session) recvLoop() {
 func (s *Session) keepalive() {
 	tickerPing := time.NewTicker(s.config.KeepAliveInterval)
 	tickerTimeout := time.NewTicker(s.config.KeepAliveTimeout)
+
 	defer tickerPing.Stop()
 	defer tickerTimeout.Stop()
 	for {
@@ -295,7 +384,7 @@ func (s *Session) keepalive() {
 			s.notifyBucket() // force a signal to the recvLoop
 		case <-tickerTimeout.C:
 			if !atomic.CompareAndSwapInt32(&s.dataReady, 1, 0) {
-				s.Close()
+				s.finish()
 				return
 			}
 		case <-s.die:
@@ -308,7 +397,7 @@ func (s *Session) sendLoop() {
 	buf := make([]byte, (1<<16)+headerSize)
 	for {
 		select {
-		case <-s.die:
+		case <-s.sendDie:
 			return
 		case request, ok := <-s.writes:
 			if !ok {

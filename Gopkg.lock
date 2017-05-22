@@ -1,4 +1,4 @@
-memo = "e69c7fe068b638d09b87ddccd57ee6db4797f179040f26540fab3ea93a990a2b"
+memo = "f6391398bde3662e208f519187bd831e6b840eb862ebd4dba479cbc99b208e48"
 
 [[projects]]
   name = "github.com/Sirupsen/logrus"
@@ -34,7 +34,7 @@ memo = "e69c7fe068b638d09b87ddccd57ee6db4797f179040f26540fab3ea93a990a2b"
   branch = "master"
   name = "github.com/golang/protobuf"
   packages = ["proto"]
-  revision = "b50ceb1fa9818fa4d78b016c2d4ae025593a7ce3"
+  revision = "fec3b39b059c0f88fa6b20f5ed012b1aa203a8b4"
 
 [[projects]]
   branch = "master"
@@ -58,7 +58,7 @@ memo = "e69c7fe068b638d09b87ddccd57ee6db4797f179040f26540fab3ea93a990a2b"
   branch = "master"
   name = "github.com/longXboy/smux"
   packages = ["."]
-  revision = "e222ef54edd6472a710c78e26afa10711dfee093"
+  revision = "e3fa4fcc3f033962e39fad06942e48552f8312c2"
 
 [[projects]]
   branch = "master"
@@ -85,28 +85,28 @@ memo = "e69c7fe068b638d09b87ddccd57ee6db4797f179040f26540fab3ea93a990a2b"
   version = "v1.1.0"
 
 [[projects]]
+  branch = "master"
   name = "github.com/xtaci/kcp-go"
   packages = ["."]
-  revision = "e820b1bd15f3e98fabd014eab5585b5cf55db4f1"
-  version = "v3.15"
+  revision = "046e70a5d264539b9a176766f2535c1828b10606"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/crypto"
   packages = ["blowfish","cast5","pbkdf2","salsa20","salsa20/salsa","tea","twofish","xtea"]
-  revision = "122d919ec1efcfb58483215da23f815853e24b81"
+  revision = "0fe963104e9d1877082f8fb38f816fcd97eb1d10"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/net"
   packages = ["bpf","context","internal/iana","internal/netreflect","ipv4"]
-  revision = "c9b681d35165f1995d6f3034e61f8761d4b90c99"
+  revision = "513929065c19401a1c7b76ecd942f9f86a0c061b"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "9ccfe848b9db8435a24c424abbc07a921adf1df5"
+  revision = "dbc2be9168a660ef302e04b6ff6406de6f967473"
 
 [[projects]]
   name = "gopkg.in/gin-gonic/gin.v1"

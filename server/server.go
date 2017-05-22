@@ -143,6 +143,7 @@ func handleConn(conn net.Conn) {
 		}
 		smuxConfig := smux.DefaultConfig()
 		smuxConfig.MaxReceiveBuffer = 1194304
+		smuxConfig.IdleStreamTimeout = time.Minute * 4
 		sess, err := smux.Server(underlyingConn, smuxConfig)
 		if err != nil {
 			underlyingConn.Close()

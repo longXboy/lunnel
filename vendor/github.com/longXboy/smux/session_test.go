@@ -57,6 +57,101 @@ func handleConnection(conn net.Conn) {
 	}
 }
 
+func TestStreamIdle(t *testing.T) {
+	conn, err := net.Dial("tcp", "127.0.0.1:19999")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := DefaultConfig()
+	config.IdleStreamTimeout = time.Second
+	sess, err := Client(conn, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := sess.OpenStream("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = stream.Write([]byte("haha"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p []byte = make([]byte, 1500)
+	nRead, err := stream.Read(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(p[:nRead]) != "haha" {
+		t.Fatal(fmt.Errorf("string(p[:nRead]) != \"haha\""))
+	}
+	time.Sleep(time.Second)
+	time.Sleep(time.Millisecond * 100)
+	_, err = stream.Write([]byte("xixi"))
+	if err == nil {
+		t.Fatal(fmt.Errorf("stream write must be err!"))
+	}
+}
+
+func TestSessionClose(t *testing.T) {
+	str := "hahah"
+	go func() {
+		lis, err := net.Listen("tcp", ":18888")
+		if err != nil {
+			t.Fatal(err)
+		}
+		conn, err := lis.Accept()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		config := DefaultConfig()
+		sess, err := Server(conn, config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for {
+			stream, err := sess.AcceptStream()
+			if err != nil {
+				return
+			}
+			go func() {
+				stream.Write([]byte(str))
+				sess.Close()
+			}()
+		}
+	}()
+
+	time.Sleep(time.Millisecond * 15)
+
+	conn, err := net.Dial("tcp", "127.0.0.1:18888")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := DefaultConfig()
+
+	sess, err := Client(conn, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := sess.OpenStream("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p []byte = make([]byte, 1500)
+	time.Sleep(time.Millisecond * 10)
+	nRead, err := stream.Read(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(p[:nRead]) != str {
+		t.Fatal(fmt.Errorf("string(p[:nRead]) != str"))
+	}
+	_, err = stream.Read(p)
+	if err == nil {
+		t.Fatal(fmt.Errorf("second read must be err!"))
+	}
+}
+
 func TestEcho(t *testing.T) {
 	cli, err := net.Dial("tcp", "127.0.0.1:19999")
 	if err != nil {

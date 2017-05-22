@@ -90,7 +90,6 @@ func (c *Control) Close() {
 func (c *Control) createPipe() {
 	defer log.CapturePanic()
 
-	log.WithFields(log.Fields{"time": time.Now().Unix(), "pipe_count": atomic.LoadInt64(&c.totalPipes)}).Debugln("create pipe conn to server!")
 	pipeConn, err := dialServer(c.transportMode)
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Errorln("create tunnel conn to server failed!")
@@ -104,10 +103,12 @@ func (c *Control) createPipe() {
 		return
 	}
 	defer pipe.Close()
-	atomic.AddInt64(&c.totalPipes, 1)
+	newNum := atomic.AddInt64(&c.totalPipes, 1)
+	log.WithFields(log.Fields{"time": time.Now().Unix(), "pipe_count": newNum}).Debugln("create pipe conn to server success!")
+
 	defer func() {
-		log.WithFields(log.Fields{"pipe_count": atomic.LoadInt64(&c.totalPipes)}).Debugln("total pipe count")
-		atomic.AddInt64(&c.totalPipes, -1)
+		newNum = atomic.AddInt64(&c.totalPipes, -1)
+		log.WithFields(log.Fields{"pipe_count": newNum}).Debugln("close pipe!")
 	}()
 	for {
 		if pipe.IsClosed() {
