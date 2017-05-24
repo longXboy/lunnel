@@ -32,6 +32,7 @@ import (
 	"github.com/longXboy/lunnel/transport"
 	"github.com/longXboy/lunnel/vhost"
 	"github.com/longXboy/smux"
+	"github.com/yvasiyarov/gorelic"
 )
 
 func Main(configDetail []byte, configType string) {
@@ -50,17 +51,29 @@ func Main(configDetail []byte, configType string) {
 	} else {
 		log.Init(serverConf.Debug, nil)
 	}
+
 	raven.SetDSN(serverConf.DSN)
+	if serverConf.RelicLicense != "" {
+		agent := gorelic.NewAgent()
+		if serverConf.Debug {
+			agent.Verbose = true
+		}
+		agent.NewrelicName = "DAO_LUNNEL_PROD"
+		agent.NewrelicLicense = serverConf.RelicLicense
+		agent.Run()
+	}
+
 	if serverConf.AuthEnable {
 		contrib.InitAuth(serverConf.AuthUrl)
 	}
 	if serverConf.NotifyEnable {
 		contrib.InitNotify(serverConf.NotifyUrl, serverConf.NotifyKey)
 	}
-	maxIdlePipes, err = strconv.ParseUint(serverConf.MaxIdlePipes, 10, 64)
+	temp, err := strconv.ParseInt(serverConf.MaxIdlePipes, 10, 64)
 	if err != nil {
 		log.Fatalln("max_idle_pipes must be unsigned integer")
 	}
+	maxIdlePipes = uint32(temp)
 	maxStreams, err = strconv.ParseUint(serverConf.MaxStreams, 10, 64)
 	if err != nil {
 		log.Fatalln("max_idle_pipes must be unsigned integer")

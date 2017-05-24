@@ -22,3 +22,7 @@
 [[dependencies]]
   branch = "master"
   name = "github.com/xtaci/kcp-go"
+
+[[dependencies]]
+  branch = "master"
+  name = "github.com/yvasiyarov/gorelic"

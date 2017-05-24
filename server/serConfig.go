@@ -56,6 +56,7 @@ type Config struct {
 	NotifyUrl    string `yaml:"notify_url,omitempty"`
 	NotifyKey    string `yaml:"notify_key,omitempty"`
 	DSN          string `yaml:"dsn,omitempty"`
+	RelicLicense string `yaml:"relic,omitempty"`
 	Health       Health `yaml:"health,omitempty"`
 	MaxIdlePipes string `yaml:"max_idle_pipes,omitempty"`
 	MaxStreams   string `yaml:"max_streams,omitempty"`

@@ -15,6 +15,7 @@
 package server
 
 import (
+	"container/list"
 	"fmt"
 	"io"
 	"net"
@@ -34,7 +35,7 @@ import (
 	"golang.org/x/net/context"
 )
 
-var maxIdlePipes uint64
+var maxIdlePipes uint32
 var maxStreams uint64
 
 var cleanInterval time.Duration = time.Second * 60
@@ -65,6 +66,8 @@ func NewControl(conn net.Conn, encryptMode string, enableCompress bool, version 
 		ctx:            ctx,
 		cancel:         cancel,
 		version:        version,
+		busyPipes:      list.New(),
+		idlePipes:      list.New(),
 	}
 	return ctl
 }
@@ -102,18 +105,14 @@ func (t *Tunnel) Close() {
 	t.listener = nil
 }
 
-type pipeNode struct {
-	prev *pipeNode
-	next *pipeNode
-	pipe *smux.Session
-}
-
 type Control struct {
 	// To work on both ARM and x86-32,
 	// these two fields must be the first elements to keep 64-bit
 	// alignment for atomic access to the fields.
-	lastRead   uint64
-	totalPipes int64
+	lastRead      uint64
+	totalPipes    uint32
+	idlePipeCount uint32
+	busyPipeCount uint32
 
 	ClientID        uuid.UUID
 	ctlConn         net.Conn
@@ -126,9 +125,8 @@ type Control struct {
 	tunnels    map[string]*Tunnel
 	tunnelLock *sync.Mutex
 
-	busyPipes *pipeNode
-	idleCount uint64
-	idlePipes *pipeNode
+	busyPipes *list.List
+	idlePipes *list.List
 	pipeAdd   chan *smux.Session
 	pipeGet   chan *smux.Session
 
@@ -136,60 +134,12 @@ type Control struct {
 	ctx    context.Context
 }
 
-func (c *Control) addIdlePipe(pipe *smux.Session) {
-	pNode := &pipeNode{pipe: pipe, prev: nil, next: nil}
-	if c.idlePipes != nil {
-		c.idlePipes.prev = pNode
-		pNode.next = c.idlePipes
-	}
-	c.idlePipes = pNode
-	c.idleCount++
-}
-
-func (c *Control) addBusyPipe(pipe *smux.Session) {
-	pNode := &pipeNode{pipe: pipe, prev: nil, next: nil}
-	if c.busyPipes != nil {
-		c.busyPipes.prev = pNode
-		pNode.next = c.busyPipes
-	}
-	c.busyPipes = pNode
-}
-
-func (c *Control) removeIdleNode(pNode *pipeNode) {
-	if pNode.prev == nil {
-		c.idlePipes = pNode.next
-		if c.idlePipes != nil {
-			c.idlePipes.prev = nil
-		}
-	} else {
-		pNode.prev.next = pNode.next
-		if pNode.next != nil {
-			pNode.next.prev = pNode.prev
-		}
-	}
-	c.idleCount--
-}
-
-func (c *Control) removeBusyNode(pNode *pipeNode) {
-	if pNode.prev == nil {
-		c.busyPipes = pNode.next
-		if c.busyPipes != nil {
-			c.busyPipes.prev = nil
-		}
-	} else {
-		pNode.prev.next = pNode.next
-		if pNode.next != nil {
-			pNode.next.prev = pNode.prev
-		}
-	}
-}
-
 func (c *Control) putPipe(p *smux.Session) {
 	select {
 	case c.pipeAdd <- p:
 	case <-c.ctx.Done():
-		atomic.AddInt64(&c.totalPipes, -1)
 		p.Close()
+		atomic.AddUint32(&c.totalPipes, ^uint32(0))
 		return
 	}
 	return
@@ -204,56 +154,80 @@ func (c *Control) getPipe() *smux.Session {
 	}
 }
 
-func (c *Control) clean() {
-	if atomic.LoadInt64(&c.totalPipes) > int64(maxIdlePipes) {
-		log.WithFields(log.Fields{"total_pipe_count": atomic.LoadInt64(&c.totalPipes), "client_id": c.ClientID.String()}).Debugln("total pipe count")
+func (c *Control) clean() *smux.Session {
+	if serverConf.Debug {
+		if atomic.LoadUint32(&c.totalPipes) > maxIdlePipes {
+			log.WithFields(log.Fields{"total_pipe_count": atomic.LoadUint32(&c.totalPipes), "client_id": c.ClientID.String()}).Debugln("total pipe count")
+		}
 	}
-	busy := c.busyPipes
+	var deleted int64 = 0
+	front := c.busyPipes.Front()
+	next := front
 	for {
-		if busy == nil {
+		if front == nil {
 			break
 		}
-		if busy.pipe.IsClosed() {
-			c.removeBusyNode(busy)
-		} else if uint64(busy.pipe.NumStreams()) < maxStreams {
-			c.removeBusyNode(busy)
-			c.addIdlePipe(busy.pipe)
+		next = front.Next()
+		sess := front.Value.(*smux.Session)
+		if sess.IsClosed() {
+			deleted++
+			c.busyPipes.Remove(front)
+		} else if num := uint64(sess.NumStreams()); num < maxStreams {
+			if num <= maxStreams/2 {
+				c.idlePipes.PushFront(c.busyPipes.Remove(front))
+			} else {
+				c.idlePipes.PushBack(c.busyPipes.Remove(front))
+			}
 		}
-		busy = busy.next
+		front = next
 	}
-	idle := c.idlePipes
+	front = c.idlePipes.Front()
+	next = front
+	var idle *smux.Session
 	for {
-		if idle == nil {
-			return
+		if front == nil {
+			break
 		}
-		if idle.pipe.IsClosed() {
-			c.removeIdleNode(idle)
-		} else if idle.pipe.NumStreams() == 0 && c.idleCount >= maxIdlePipes {
-			log.WithFields(log.Fields{"time": time.Now().Unix(), "pipe": fmt.Sprintf("%p", idle.pipe), "client_id": c.ClientID.String()}).Debugln("remove and close idle")
-			c.removeIdleNode(idle)
-			atomic.AddInt64(&c.totalPipes, -1)
-			idle.pipe.Close()
+		next = front.Next()
+		sess := front.Value.(*smux.Session)
+		if sess.IsClosed() {
+			c.idlePipes.Remove(front)
+			deleted++
+		} else if sess.NumStreams() == 0 && uint32(c.idlePipes.Len()) > maxIdlePipes {
+			c.idlePipes.Remove(front)
+			deleted++
+			sess.Close()
+			log.WithFields(log.Fields{"idle_count": c.idlePipes.Len(), "pipe": fmt.Sprintf("%p", sess), "client_id": c.ClientID.String()}).Debugln("remove and close idle")
+		} else if idle == nil {
+			idle = sess
 		}
-		idle = idle.next
+		front = next
 	}
-	return
-
+	if deleted > 0 {
+		atomic.AddUint32(&c.totalPipes, ^uint32(deleted-1))
+	}
+	atomic.StoreUint32(&c.busyPipeCount, uint32(c.busyPipes.Len()))
+	atomic.StoreUint32(&c.idlePipeCount, uint32(c.idlePipes.Len()))
+	return idle
 }
-func (c *Control) getIdleFast() (idle *pipeNode) {
-	idle = c.idlePipes
+
+func (c *Control) getIdleFast() *smux.Session {
+	idle := c.idlePipes.Front()
 	for {
 		if idle == nil {
-			return
+			atomic.StoreUint32(&c.idlePipeCount, uint32(c.idlePipes.Len()))
+			return nil
 		}
-		if idle.pipe.IsClosed() {
-			c.removeIdleNode(idle)
-			idle = idle.next
+		next := idle.Next()
+		if idle.Value.(*smux.Session).IsClosed() {
+			atomic.AddUint32(&c.totalPipes, ^uint32(0))
+			c.idlePipes.Remove(idle)
 		} else {
-			c.removeIdleNode(idle)
-			return
+			atomic.StoreUint32(&c.idlePipeCount, uint32(c.idlePipes.Len()))
+			return c.idlePipes.Remove(idle).(*smux.Session)
 		}
+		idle = next
 	}
-	return
 }
 
 func (c *Control) pipeManage() {
@@ -266,26 +240,25 @@ func (c *Control) pipeManage() {
 	for {
 	Prepare:
 		if available == nil || available.IsClosed() {
-			available = nil
-			idle := c.getIdleFast()
-			if idle == nil {
-				c.clean()
-				idle := c.getIdleFast()
+			if available != nil {
+				atomic.AddUint32(&c.totalPipes, ^uint32(0))
+			}
+			available = c.getIdleFast()
+			if available == nil {
+				available = c.clean()
 				select {
 				case c.writeChan <- writeReq{msg.TypePipeReq, nil}:
 				default:
 					c.Close()
 					return
 				}
-				if idle == nil {
+				if available == nil {
 					pipeGetTimeout := time.After(time.Second * 12)
 					for {
 						select {
 						case <-ticker.C:
-							c.clean()
-							idle := c.getIdleFast()
-							if idle != nil {
-								available = idle.pipe
+							available = c.clean()
+							if available != nil {
 								goto Available
 							}
 						case p := <-c.pipeAdd:
@@ -294,8 +267,11 @@ func (c *Control) pipeManage() {
 									available = p
 									goto Available
 								} else {
-									c.addBusyPipe(p)
+									c.busyPipes.PushBack(p)
+									atomic.StoreUint32(&c.busyPipeCount, uint32(c.busyPipes.Len()))
 								}
+							} else {
+								atomic.AddUint32(&c.totalPipes, ^uint32(0))
 							}
 						case <-c.ctx.Done():
 							return
@@ -303,11 +279,7 @@ func (c *Control) pipeManage() {
 							goto Prepare
 						}
 					}
-				} else {
-					available = idle.pipe
 				}
-			} else {
-				available = idle.pipe
 			}
 		}
 	Available:
@@ -319,11 +291,19 @@ func (c *Control) pipeManage() {
 			available = nil
 		case p := <-c.pipeAdd:
 			if !p.IsClosed() {
-				if uint64(p.NumStreams()) < maxStreams {
-					c.addIdlePipe(p)
+				if num := uint64(p.NumStreams()); num < maxStreams {
+					if num <= maxStreams/2 {
+						c.idlePipes.PushFront(p)
+					} else {
+						c.idlePipes.PushBack(p)
+					}
+					atomic.StoreUint32(&c.idlePipeCount, uint32(c.idlePipes.Len()))
 				} else {
-					c.addBusyPipe(p)
+					c.busyPipes.PushBack(p)
+					atomic.StoreUint32(&c.busyPipeCount, uint32(c.busyPipes.Len()))
 				}
+			} else {
+				atomic.AddUint32(&c.totalPipes, ^uint32(0))
 			}
 		case <-c.ctx.Done():
 			return
@@ -349,31 +329,34 @@ func (c *Control) closeTunnels() map[string]msg.Tunnel {
 }
 
 func (c *Control) closePipes() {
-	idle := c.idlePipes
+	idle := c.idlePipes.Front()
 	for {
 		if idle == nil {
 			break
 		}
-		if !idle.pipe.IsClosed() {
-			atomic.AddInt64(&c.totalPipes, -1)
-			idle.pipe.Close()
+		sess := idle.Value.(*smux.Session)
+		if !sess.IsClosed() {
+			sess.Close()
 		}
-		idle = idle.next
+		atomic.AddUint32(&c.totalPipes, ^uint32(0))
+		idle = idle.Next()
 	}
 	c.idlePipes = nil
 
-	busy := c.busyPipes
+	busy := c.busyPipes.Front()
 	for {
 		if busy == nil {
 			break
 		}
-		if !busy.pipe.IsClosed() {
-			atomic.AddInt64(&c.totalPipes, -1)
-			busy.pipe.Close()
+		sess := busy.Value.(*smux.Session)
+		if !sess.IsClosed() {
+			sess.Close()
 		}
-		busy = busy.next
+		atomic.AddUint32(&c.totalPipes, ^uint32(0))
+		busy = busy.Next()
 	}
 	c.busyPipes = nil
+
 	log.WithField("clientId", c.ClientID).Debugln("close pipes")
 }
 
@@ -495,6 +478,7 @@ func proxyConn(userConn net.Conn, c *Control, tunnelName string) {
 	if p == nil {
 		return
 	}
+	//todo:close stream friendly
 	stream, err := p.OpenStream(tunnelName)
 	if err != nil {
 		c.putPipe(p)
@@ -764,7 +748,7 @@ func PipeHandShake(conn net.Conn, phs *msg.PipeClientHello) error {
 	if err != nil {
 		return errors.Wrap(err, "smux.Client")
 	}
+	atomic.AddUint32(&ctl.totalPipes, 1)
 	ctl.putPipe(sess)
-	atomic.AddInt64(&ctl.totalPipes, 1)
 	return nil
 }
