@@ -17,7 +17,7 @@ Lunnel is an easy to use intranet NAT traversal, reverse proxy software, support
 
 1. Modify the server configuration:
 
-`` `Yaml
+```Yaml
 Server_domain: example.com
 Port: 8080
 Aes
@@ -25,12 +25,12 @@ Aes
 Tls:
   Cert: ./example.crt
   Key: ./example.key
-`` ``
+```
 
 2. Start the server program on the public network: `sudo ./lunnelSer -c. / Config.yml`
 3. Modify the client configuration and save:
 
-`` `Yaml
+```Yaml
 Server_addr: <your_server_ip>: 8080
 Tunnels
   Docker
@@ -40,7 +40,7 @@ Tunnels
 Aes
   Secret_key: password
 Enable_compress: true
-`` ``
+```
 
 4. Start the client program locally: `./lunnelCli -c. / Config.yml`
 5. Access docker.example.com in the browser to control the docker via http api
@@ -51,7 +51,7 @@ Enable_compress: true
 2. Use the docker to start the 2048 program and run the local 32768 port: `docker run -d -p 32768: 80 daocloud.io / sakeven / 2048`
 3. Modify the client configuration and save:
 
-`` `Yaml
+```Yaml
 Server_addr: <your_server_ip>: 8080
 Tunnels
   2048:
@@ -61,7 +61,7 @@ Tunnels
 Tls:
   Trusted_cert: ./cacert-example.pem
 Server_name: example.com
-`` ``
+```
 
 4. Start the client program locally: `./lunnelCli -c. / Config.yml`
 5. By observing the client log, find the external network to access the address after the visit in the browser (because this example does not specify the host for the host tunnel, so the remote distribution by the server to access the address)
