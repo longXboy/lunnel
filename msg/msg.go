@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"time"
 
 	"github.com/pkg/errors"
@@ -123,7 +122,7 @@ func writeFull(w io.Writer, buf []byte) (err error) {
 	return
 }
 
-func WriteMsg(w net.Conn, mType MsgType, in interface{}) error {
+func WriteMsg(w TimeOutReadWriteCloser, mType MsgType, in interface{}) error {
 	var length int
 	var body []byte
 	var err error
@@ -157,18 +156,25 @@ func WriteMsg(w net.Conn, mType MsgType, in interface{}) error {
 	return nil
 }
 
-func ReadMsgWithoutDeadline(r net.Conn) (MsgType, interface{}, error) {
+func ReadMsgWithoutDeadline(r TimeOutReadWriteCloser) (MsgType, interface{}, error) {
 	return readMsg(r)
 }
 
-func ReadMsg(r net.Conn) (MsgType, interface{}, error) {
+type TimeOutReadWriteCloser interface {
+	io.ReadWriteCloser
+
+	SetReadDeadline(t time.Time) error
+	SetWriteDeadline(t time.Time) error
+}
+
+func ReadMsg(r TimeOutReadWriteCloser) (MsgType, interface{}, error) {
 	r.SetReadDeadline(time.Now().Add(time.Second * 12))
 	t, o, e := readMsg(r)
 	r.SetReadDeadline(time.Time{})
 	return t, o, e
 }
 
-func readMsg(r net.Conn) (MsgType, interface{}, error) {
+func readMsg(r TimeOutReadWriteCloser) (MsgType, interface{}, error) {
 	var header []byte = make([]byte, 4)
 	_, err := io.ReadFull(r, header)
 	if err != nil {

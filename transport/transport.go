@@ -16,6 +16,7 @@ package transport
 
 import (
 	"bufio"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"net"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/longXboy/lunnel/log"
 	"github.com/longXboy/lunnel/transport/kcp"
+	"github.com/lucas-clemente/quic-go"
 	"github.com/pkg/errors"
 )
 
@@ -91,6 +93,22 @@ func CreateTCPConn(addr string, httpProxy string) (net.Conn, error) {
 	}
 	return tcpConn, nil
 
+}
+
+func ListenQuic(addr string, tlsConfig *tls.Config) (quic.Listener, error) {
+	lis, err := quic.ListenAddr(addr, &quic.Config{TLSConfig: tlsConfig})
+	if err != nil {
+		return nil, errors.Wrap(err, "listen quic")
+	}
+	return lis, nil
+}
+
+func CreateQuicSess(addr string, tlsConfig *tls.Config) (quic.Session, error) {
+	sess, err := quic.DialAddr(addr, &quic.Config{TLSConfig: tlsConfig})
+	if err != nil {
+		return nil, errors.Wrap(err, "quic.DialAddr")
+	}
+	return sess, nil
 }
 
 func CreateKCPConn(addr string) (net.Conn, error) {

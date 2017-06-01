@@ -30,6 +30,7 @@ import (
 	"github.com/longXboy/lunnel/transport"
 	"github.com/longXboy/lunnel/util"
 	"github.com/longXboy/smux"
+	"github.com/lucas-clemente/quic-go"
 	"github.com/pkg/errors"
 	"github.com/satori/go.uuid"
 	"golang.org/x/net/context"
@@ -51,11 +52,12 @@ var subDomainIdx uint64
 var TunnelMapLock sync.RWMutex
 var TunnelMap = make(map[string]*Tunnel)
 
-func NewControl(conn net.Conn, encryptMode string, enableCompress bool, version string) *Control {
+func NewControl(conn net.Conn, sess quic.Session, encryptMode string, enableCompress bool, version string) *Control {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	ctl := &Control{
 		ctlConn:        conn,
+		sess:           sess,
 		pipeGet:        make(chan *smux.Session),
 		pipeAdd:        make(chan *smux.Session),
 		writeChan:      make(chan writeReq, 64),
@@ -116,6 +118,7 @@ type Control struct {
 
 	ClientID        uuid.UUID
 	ctlConn         net.Conn
+	sess            quic.Session
 	preMasterSecret []byte
 	encryptMode     string
 	enableCompress  bool
@@ -447,7 +450,9 @@ func (c *Control) Serve() {
 
 	go c.recvLoop()
 	go c.writeLoop()
-	go c.pipeManage()
+	if c.sess == nil {
+		go c.pipeManage()
+	}
 
 	ticker := time.NewTicker(time.Duration(serverConf.Health.Interval * int64(time.Second)))
 	defer ticker.Stop()
@@ -474,26 +479,37 @@ func (c *Control) Serve() {
 
 func proxyConn(userConn net.Conn, c *Control, tunnelName string) {
 	defer userConn.Close()
-	p := c.getPipe()
-	if p == nil {
-		return
-	}
-	//todo:close stream friendly
-	stream, err := p.OpenStream(tunnelName)
-	if err != nil {
+	var remoteConn io.ReadWriteCloser
+	var err error
+	if c.sess == nil {
+		p := c.getPipe()
+		if p == nil {
+			return
+		}
+		//todo:close stream friendly
+		remoteConn, err = p.OpenStream(tunnelName)
+		if err != nil {
+			log.WithFields(log.Fields{"client_id": c.ClientID, "err": err.Error()}).Errorln("sess.OpenStream for proxy conn")
+			c.putPipe(p)
+			return
+		}
 		c.putPipe(p)
-		return
+	} else {
+		remoteConn, err := c.sess.OpenStream()
+		if err != nil {
+			log.WithFields(log.Fields{"client_id": c.ClientID, "err": err.Error()}).Errorln("sess.OpenStream for proxy conn")
+			return
+		}
 	}
-	defer stream.Close()
-	c.putPipe(p)
+	defer remoteConn.Close()
 	p1die := make(chan struct{})
 	p2die := make(chan struct{})
 	go func() {
-		io.Copy(stream, userConn)
+		io.Copy(remoteConn, userConn)
 		close(p1die)
 	}()
 	go func() {
-		io.Copy(userConn, stream)
+		io.Copy(userConn, remoteConn)
 		close(p2die)
 	}()
 	select {

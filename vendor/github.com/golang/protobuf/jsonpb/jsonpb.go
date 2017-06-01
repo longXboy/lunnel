@@ -44,6 +44,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
 	"sort"
 	"strconv"
@@ -123,6 +124,22 @@ func (m *Marshaler) marshalObject(out *errWriter, v proto.Message, indent, typeU
 		if err != nil {
 			return err
 		}
+		if typeURL != "" {
+			// we are marshaling this object to an Any type
+			var js map[string]*json.RawMessage
+			if err = json.Unmarshal(b, &js); err != nil {
+				return fmt.Errorf("type %T produced invalid JSON: %v", v, err)
+			}
+			turl, err := json.Marshal(typeURL)
+			if err != nil {
+				return fmt.Errorf("failed to marshal type URL %q to JSON: %v", typeURL, err)
+			}
+			js["@type"] = (*json.RawMessage)(&turl)
+			if b, err = json.Marshal(js); err != nil {
+				return err
+			}
+		}
+
 		out.write(string(b))
 		return out.err
 	}
@@ -402,7 +419,6 @@ func (m *Marshaler) marshalField(out *errWriter, prop *proto.Properties, v refle
 
 // marshalValue writes the value to the Writer.
 func (m *Marshaler) marshalValue(out *errWriter, prop *proto.Properties, v reflect.Value, indent string) error {
-
 	var err error
 	v = reflect.Indirect(v)
 
@@ -441,9 +457,6 @@ func (m *Marshaler) marshalValue(out *errWriter, prop *proto.Properties, v refle
 
 	// Handle well-known types.
 	// Most are handled up in marshalObject (because 99% are messages).
-	type wkt interface {
-		XXX_WellKnownType() string
-	}
 	if wkt, ok := v.Interface().(wkt); ok {
 		switch wkt.XXX_WellKnownType() {
 		case "NullValue":
@@ -531,6 +544,24 @@ func (m *Marshaler) marshalValue(out *errWriter, prop *proto.Properties, v refle
 		return out.err
 	}
 
+	// Handle non-finite floats, e.g. NaN, Infinity and -Infinity.
+	if v.Kind() == reflect.Float32 || v.Kind() == reflect.Float64 {
+		f := v.Float()
+		var sval string
+		switch {
+		case math.IsInf(f, 1):
+			sval = `"Infinity"`
+		case math.IsInf(f, -1):
+			sval = `"-Infinity"`
+		case math.IsNaN(f):
+			sval = `"NaN"`
+		}
+		if sval != "" {
+			out.write(sval)
+			return out.err
+		}
+	}
+
 	// Default handling defers to the encoding/json library.
 	b, err := json.Marshal(v.Interface())
 	if err != nil {
@@ -611,9 +642,6 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 	}
 
 	// Handle well-known types.
-	type wkt interface {
-		XXX_WellKnownType() string
-	}
 	if w, ok := target.Addr().Interface().(wkt); ok {
 		switch w.XXX_WellKnownType() {
 		case "DoubleValue", "FloatValue", "Int64Value", "UInt64Value",
@@ -624,19 +652,22 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 			// so we don't have to do any extra work.
 			return u.unmarshalValue(target.Field(0), inputValue, prop)
 		case "Any":
-			var jsonFields map[string]json.RawMessage
+			// Use json.RawMessage pointer type instead of value to support pre-1.8 version.
+			// 1.8 changed RawMessage.MarshalJSON from pointer type to value type, see
+			// https://github.com/golang/go/issues/14493
+			var jsonFields map[string]*json.RawMessage
 			if err := json.Unmarshal(inputValue, &jsonFields); err != nil {
 				return err
 			}
 
 			val, ok := jsonFields["@type"]
-			if !ok {
+			if !ok || val == nil {
 				return errors.New("Any JSON doesn't have '@type'")
 			}
 
 			var turl string
-			if err := json.Unmarshal([]byte(val), &turl); err != nil {
-				return fmt.Errorf("can't unmarshal Any's '@type': %q", val)
+			if err := json.Unmarshal([]byte(*val), &turl); err != nil {
+				return fmt.Errorf("can't unmarshal Any's '@type': %q", *val)
 			}
 			target.Field(0).SetString(turl)
 
@@ -656,8 +687,8 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 					return errors.New("Any JSON doesn't have 'value'")
 				}
 
-				if err := u.unmarshalValue(reflect.ValueOf(m).Elem(), val, nil); err != nil {
-					return fmt.Errorf("can't unmarshal Any's WKT: %v", err)
+				if err := u.unmarshalValue(reflect.ValueOf(m).Elem(), *val, nil); err != nil {
+					return fmt.Errorf("can't unmarshal Any nested proto %T: %v", m, err)
 				}
 			} else {
 				delete(jsonFields, "@type")
@@ -667,13 +698,13 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 				}
 
 				if err = u.unmarshalValue(reflect.ValueOf(m).Elem(), nestedProto, nil); err != nil {
-					return fmt.Errorf("can't unmarshal nested Any proto: %v", err)
+					return fmt.Errorf("can't unmarshal Any nested proto %T: %v", m, err)
 				}
 			}
 
 			b, err := proto.Marshal(m)
 			if err != nil {
-				return fmt.Errorf("can't marshal proto into Any.Value: %v", err)
+				return fmt.Errorf("can't marshal proto %T into Any.Value: %v", m, err)
 			}
 			target.Field(1).SetBytes(b)
 

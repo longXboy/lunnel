@@ -32,6 +32,7 @@ import (
 	"github.com/longXboy/lunnel/transport"
 	"github.com/longXboy/lunnel/vhost"
 	"github.com/longXboy/smux"
+	"github.com/lucas-clemente/quic-go"
 	"github.com/yvasiyarov/gorelic"
 )
 
@@ -96,6 +97,73 @@ func listenAndServe(transportMode string) {
 	}
 	log.WithFields(log.Fields{"address": addr, "protocol": transportMode}).Infoln("server's control listen at")
 	serve(lis)
+}
+
+func handleQuic(sess quic.Session) {
+	defer log.CapturePanic()
+	defer sess.Close(nil)
+	timer := time.NewTimer(time.Second * 10)
+	get := make(chan struct{})
+	defer timer.Stop()
+	go func() {
+		select {
+		case <-timer.C:
+			sess.Close(fmt.Errorf("accept stream timeout"))
+		case <-get:
+		}
+	}()
+	stream, err := sess.AcceptStream()
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).Warningln("sess.AcceptStream failed!")
+		return
+	}
+	defer stream.Close()
+	close(get)
+
+	mType, body, err := msg.ReadMsg(stream)
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).Warningln("read handshake msg failed!")
+		return
+	}
+	if mType != msg.TypeClientHello {
+		log.WithFields(log.Fields{"msgType": mType, "body": body}).Errorln("read handshake msg invalid type!")
+		return
+	}
+	if clientHello.EncryptMode == "tls" && (serverConf.Tls.TlsCert == "" || serverConf.Tls.TlsKey == "") {
+		err = msg.WriteMsg(stream, msg.TypeError, msg.Error{Msg: "server not support tls mode"})
+		if err != nil {
+			return
+		}
+	} else if clientHello.EncryptMode == "aes" && serverConf.Aes.SecretKey == "" {
+		err = msg.WriteMsg(stream, msg.TypeError, msg.Error{Msg: "server not support aes mode"})
+		if err != nil {
+			return
+		}
+	} else {
+		err = msg.WriteMsg(stream, msg.TypeServerHello, nil)
+		if err != nil {
+			return
+		}
+	}
+
+	var underlyingConn io.ReadWriteCloser
+	var err error
+	if clientHello.EncryptMode == "tls" || clientHello.EncryptMode == "none" {
+		underlyingConn = stream
+	} else if clientHello.EncryptMode == "aes" {
+		underlyingConn, err = crypto.NewCryptoStream(stream, []byte(serverConf.Aes.SecretKey))
+		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Errorln("client hello,crypto.NewCryptoConn failed!")
+			return
+		}
+	} else {
+		msg.WriteMsg(stream, msg.TypeError, msg.Error{Msg: "invalid encryption mode"})
+		log.WithFields(log.Fields{"encrypt_mode": clientHello.EncryptMode, "err": "invalid EncryptMode"}).Errorln("client hello failed!")
+		return
+	}
+	log.WithFields(log.Fields{"encrypt_mode": body.(*msg.ClientHello).EncryptMode}).Debugln("new client hello")
+	handleControl(stream, sess, clientHello)
+
 }
 
 func handleConn(conn net.Conn) {
@@ -170,7 +238,7 @@ func handleConn(conn net.Conn) {
 			return
 		}
 		log.WithFields(log.Fields{"encrypt_mode": body.(*msg.ClientHello).EncryptMode}).Debugln("new client hello")
-		handleControl(stream, clientHello)
+		handleControl(stream, nil, clientHello)
 	} else if mType == msg.TypePipeClientHello {
 		handlePipe(conn, body.(*msg.PipeClientHello))
 	} else {
@@ -286,8 +354,8 @@ func newTlsConfig() (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
-func handleControl(conn net.Conn, cch *msg.ClientHello) {
-	ctl := NewControl(conn, cch.EncryptMode, cch.EnableCompress, cch.Version)
+func handleControl(conn net.Conn, sess *quic.Session, cch *msg.ClientHello) {
+	ctl := NewControl(conn, sess, cch.EncryptMode, cch.EnableCompress, cch.Version)
 	err := ctl.ServerHandShake()
 	if err != nil {
 		conn.Close()
