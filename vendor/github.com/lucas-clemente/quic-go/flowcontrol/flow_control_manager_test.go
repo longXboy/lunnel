@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/lucas-clemente/quic-go/congestion"
-	"github.com/lucas-clemente/quic-go/handshake"
+	"github.com/lucas-clemente/quic-go/internal/mocks"
 	"github.com/lucas-clemente/quic-go/protocol"
 	"github.com/lucas-clemente/quic-go/qerr"
 	. "github.com/onsi/ginkgo"
@@ -13,16 +13,14 @@ import (
 
 var _ = Describe("Flow Control Manager", func() {
 	var fcm *flowControlManager
-	var cpm handshake.ConnectionParametersManager
 
 	BeforeEach(func() {
-		cpm = &mockConnectionParametersManager{
-			receiveStreamFlowControlWindow:        100,
-			receiveConnectionFlowControlWindow:    200,
-			maxReceiveStreamFlowControlWindow:     9999999,
-			maxReceiveConnectionFlowControlWindow: 9999999,
-		}
-		fcm = NewFlowControlManager(cpm, &congestion.RTTStats{}).(*flowControlManager)
+		mockCpm := mocks.NewMockConnectionParametersManager(mockCtrl)
+		mockCpm.EXPECT().GetReceiveStreamFlowControlWindow().AnyTimes().Return(protocol.ByteCount(100))
+		mockCpm.EXPECT().GetReceiveConnectionFlowControlWindow().AnyTimes().Return(protocol.ByteCount(200))
+		mockCpm.EXPECT().GetMaxReceiveStreamFlowControlWindow().AnyTimes().Return(protocol.MaxByteCount)
+		mockCpm.EXPECT().GetMaxReceiveConnectionFlowControlWindow().AnyTimes().Return(protocol.MaxByteCount)
+		fcm = NewFlowControlManager(mockCpm, &congestion.RTTStats{}).(*flowControlManager)
 	})
 
 	It("creates a connection level flow controller", func() {
@@ -103,6 +101,12 @@ var _ = Describe("Flow Control Manager", func() {
 			Expect(err).To(MatchError(errMapAccess))
 		})
 
+		It("gets the offset of the connection-level receive window", func() {
+			offset, err := fcm.GetReceiveWindow(0)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(offset).To(Equal(protocol.ByteCount(200)))
+		})
+
 		Context("flow control violations", func() {
 			It("errors when encountering a stream level flow control violation", func() {
 				err := fcm.UpdateHighestReceived(4, 101)
@@ -111,8 +115,11 @@ var _ = Describe("Flow Control Manager", func() {
 
 			It("errors when encountering a connection-level flow control violation", func() {
 				fcm.streamFlowController[4].receiveWindow = 300
-				err := fcm.UpdateHighestReceived(4, 201)
-				Expect(err).To(MatchError(qerr.Error(qerr.FlowControlReceivedTooMuchData, "Received 201 bytes for the connection, allowed 200 bytes")))
+				fcm.streamFlowController[6].receiveWindow = 300
+				err := fcm.UpdateHighestReceived(6, 100)
+				Expect(err).ToNot(HaveOccurred())
+				err = fcm.UpdateHighestReceived(4, 103)
+				Expect(err).To(MatchError(qerr.Error(qerr.FlowControlReceivedTooMuchData, "Received 203 bytes for the connection, allowed 200 bytes")))
 			})
 		})
 
@@ -226,7 +233,10 @@ var _ = Describe("Flow Control Manager", func() {
 
 			It("errors when encountering a connection-level flow control violation", func() {
 				fcm.streamFlowController[4].receiveWindow = 300
-				err := fcm.ResetStream(4, 201)
+				fcm.streamFlowController[6].receiveWindow = 300
+				err := fcm.ResetStream(4, 100)
+				Expect(err).ToNot(HaveOccurred())
+				err = fcm.ResetStream(6, 101)
 				Expect(err).To(MatchError(qerr.Error(qerr.FlowControlReceivedTooMuchData, "Received 201 bytes for the connection, allowed 200 bytes")))
 			})
 		})

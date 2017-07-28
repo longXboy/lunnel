@@ -38,7 +38,7 @@ var _ = Describe("Drop Proxy", func() {
 			"https://quic.clemente.io/data",
 		)
 
-		session, err := Start(command, GinkgoWriter, GinkgoWriter)
+		session, err := Start(command, nil, GinkgoWriter)
 		Expect(err).NotTo(HaveOccurred())
 		defer session.Kill()
 		Eventually(session, 20).Should(Exit(0))
@@ -49,30 +49,42 @@ var _ = Describe("Drop Proxy", func() {
 		Expect(proxy.Close()).To(Succeed())
 	})
 
-	for i := range protocol.SupportedVersions {
-		version := protocol.SupportedVersions[i]
+	Context("after the crypto handshake", func() {
+		for i := range protocol.SupportedVersions {
+			version := protocol.SupportedVersions[i]
 
-		Context(fmt.Sprintf("with quic version %d", version), func() {
-			Context("dropping every 4th packet after the crypto handshake", func() {
-				dropper := func(p protocol.PacketNumber) bool {
-					if p <= 10 { // don't interfere with the crypto handshake
-						return false
-					}
-					return p%4 == 0
-				}
-
-				It("gets a file when many outgoing packets are dropped", func() {
-					runDropTest(func(d quicproxy.Direction, p protocol.PacketNumber) bool {
-						return d == quicproxy.DirectionOutgoing && dropper(p)
-					}, version)
-				})
-
-				It("gets a file when many incoming packets are dropped", func() {
-					runDropTest(func(d quicproxy.Direction, p protocol.PacketNumber) bool {
-						return d == quicproxy.DirectionIncoming && dropper(p)
-					}, version)
-				})
+			Context(fmt.Sprintf("with quic version %d", version), func() {
+				dropTests("dropping every 4th packet", 4, 1, runDropTest, version)
+				dropTests("dropping 10 packets every 100 packets", 100, 10, runDropTest, version)
 			})
-		})
-	}
+		}
+	})
 })
+
+func dropTests(
+	context string,
+	interval protocol.PacketNumber,
+	dropInARow protocol.PacketNumber,
+	runDropTest func(dropCallback quicproxy.DropCallback, version protocol.VersionNumber),
+	version protocol.VersionNumber) {
+	Context(context, func() {
+		dropper := func(p protocol.PacketNumber) bool {
+			if p <= 10 { // don't interfere with the crypto handshake
+				return false
+			}
+			return (p % interval) < dropInARow
+		}
+
+		It("gets a file when many outgoing packets are dropped", func() {
+			runDropTest(func(d quicproxy.Direction, p protocol.PacketNumber) bool {
+				return d == quicproxy.DirectionOutgoing && dropper(p)
+			}, version)
+		})
+
+		It("gets a file when many incoming packets are dropped", func() {
+			runDropTest(func(d quicproxy.Direction, p protocol.PacketNumber) bool {
+				return d == quicproxy.DirectionIncoming && dropper(p)
+			}, version)
+		})
+	})
+}

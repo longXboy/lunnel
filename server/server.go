@@ -102,29 +102,20 @@ func listenAndServe(transportMode string) {
 func handleQuic(sess quic.Session) {
 	defer log.CapturePanic()
 	defer sess.Close(nil)
-	timer := time.NewTimer(time.Second * 10)
-	get := make(chan struct{})
-	defer timer.Stop()
-	go func() {
-		select {
-		case <-timer.C:
-			sess.Close(fmt.Errorf("accept stream timeout"))
-		case <-get:
-		}
-	}()
 	stream, err := sess.AcceptStream()
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warningln("sess.AcceptStream failed!")
 		return
 	}
 	defer stream.Close()
-	close(get)
 
 	mType, body, err := msg.ReadMsg(stream)
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warningln("read handshake msg failed!")
 		return
 	}
+	clientHello := body.(*msg.ClientHello)
+
 	if mType != msg.TypeClientHello {
 		log.WithFields(log.Fields{"msgType": mType, "body": body}).Errorln("read handshake msg invalid type!")
 		return
@@ -146,24 +137,10 @@ func handleQuic(sess quic.Session) {
 		}
 	}
 
-	var underlyingConn io.ReadWriteCloser
-	var err error
-	if clientHello.EncryptMode == "tls" || clientHello.EncryptMode == "none" {
-		underlyingConn = stream
-	} else if clientHello.EncryptMode == "aes" {
-		underlyingConn, err = crypto.NewCryptoStream(stream, []byte(serverConf.Aes.SecretKey))
-		if err != nil {
-			log.WithFields(log.Fields{"err": err}).Errorln("client hello,crypto.NewCryptoConn failed!")
-			return
-		}
-	} else {
-		msg.WriteMsg(stream, msg.TypeError, msg.Error{Msg: "invalid encryption mode"})
-		log.WithFields(log.Fields{"encrypt_mode": clientHello.EncryptMode, "err": "invalid EncryptMode"}).Errorln("client hello failed!")
-		return
-	}
 	log.WithFields(log.Fields{"encrypt_mode": body.(*msg.ClientHello).EncryptMode}).Debugln("new client hello")
-	handleControl(stream, sess, clientHello)
-
+	qc := &transport.QuicConn{Sess: sess}
+	qc.Stream = stream
+	handleControl(qc, sess, clientHello)
 }
 
 func handleConn(conn net.Conn) {
@@ -354,7 +331,7 @@ func newTlsConfig() (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
-func handleControl(conn net.Conn, sess *quic.Session, cch *msg.ClientHello) {
+func handleControl(conn net.Conn, sess quic.Session, cch *msg.ClientHello) {
 	ctl := NewControl(conn, sess, cch.EncryptMode, cch.EnableCompress, cch.Version)
 	err := ctl.ServerHandShake()
 	if err != nil {

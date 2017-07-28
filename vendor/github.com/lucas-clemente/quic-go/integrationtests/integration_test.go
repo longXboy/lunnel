@@ -34,10 +34,10 @@ var _ = Describe("Integration tests", func() {
 					"--port="+port,
 					"https://quic.clemente.io/hello",
 				)
-				session, err := Start(command, GinkgoWriter, GinkgoWriter)
+				session, err := Start(command, nil, GinkgoWriter)
 				Expect(err).NotTo(HaveOccurred())
 				defer session.Kill()
-				Eventually(session).Should(Exit(0))
+				Eventually(session, 5).Should(Exit(0))
 				Expect(session.Out).To(Say(":status 200"))
 				Expect(session.Out).To(Say("body: Hello, World!\n"))
 			})
@@ -51,10 +51,10 @@ var _ = Describe("Integration tests", func() {
 					"--body=foo",
 					"https://quic.clemente.io/echo",
 				)
-				session, err := Start(command, GinkgoWriter, GinkgoWriter)
+				session, err := Start(command, nil, GinkgoWriter)
 				Expect(err).NotTo(HaveOccurred())
 				defer session.Kill()
-				Eventually(session).Should(Exit(0))
+				Eventually(session, 5).Should(Exit(0))
 				Expect(session.Out).To(Say(":status 200"))
 				Expect(session.Out).To(Say("body: foo\n"))
 			})
@@ -70,7 +70,7 @@ var _ = Describe("Integration tests", func() {
 				session, err := Start(command, nil, GinkgoWriter)
 				Expect(err).NotTo(HaveOccurred())
 				defer session.Kill()
-				Eventually(session, 2).Should(Exit(0))
+				Eventually(session, 10).Should(Exit(0))
 				Expect(bytes.Contains(session.Out.Contents(), dataMan.GetData())).To(BeTrue())
 			})
 
@@ -91,7 +91,7 @@ var _ = Describe("Integration tests", func() {
 						session, err := Start(command, nil, GinkgoWriter)
 						Expect(err).NotTo(HaveOccurred())
 						defer session.Kill()
-						Eventually(session, 10).Should(Exit(0))
+						Eventually(session, 20).Should(Exit(0))
 						Expect(bytes.Contains(session.Out.Contents(), dataMan.GetData())).To(BeTrue())
 					}()
 				}

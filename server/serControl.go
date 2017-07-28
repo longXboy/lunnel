@@ -479,7 +479,7 @@ func (c *Control) Serve() {
 
 func proxyConn(userConn net.Conn, c *Control, tunnelName string) {
 	defer userConn.Close()
-	var remoteConn io.ReadWriteCloser
+	var remoteConn msg.TimeOutReadWriteCloser
 	var err error
 	if c.sess == nil {
 		p := c.getPipe()
@@ -495,9 +495,14 @@ func proxyConn(userConn net.Conn, c *Control, tunnelName string) {
 		}
 		c.putPipe(p)
 	} else {
-		remoteConn, err := c.sess.OpenStream()
+		remoteConn, err = c.sess.OpenStream()
 		if err != nil {
 			log.WithFields(log.Fields{"client_id": c.ClientID, "err": err.Error()}).Errorln("sess.OpenStream for proxy conn")
+			return
+		}
+		err = msg.WriteMsg(remoteConn, msg.TypeTunnelName, msg.TunnelName{tunnelName})
+		if err != nil {
+			log.WithFields(log.Fields{"client_id": c.ClientID, "err": err.Error()}).Errorln("write tunnel name failed")
 			return
 		}
 	}

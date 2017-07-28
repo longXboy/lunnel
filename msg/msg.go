@@ -38,6 +38,7 @@ const (
 	TypePong
 	TypeError
 	TypeExit
+	TypeTunnelName
 )
 
 type Error struct {
@@ -46,6 +47,10 @@ type Error struct {
 
 func (e *Error) Error() string {
 	return e.Msg
+}
+
+type TunnelName struct {
+	Name string
 }
 
 type ClientHello struct {

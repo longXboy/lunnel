@@ -2,74 +2,36 @@ package quic
 
 import (
 	"errors"
-	"math"
-	"time"
 
-	"github.com/lucas-clemente/quic-go/handshake"
+	"github.com/lucas-clemente/quic-go/internal/mocks"
 	"github.com/lucas-clemente/quic-go/protocol"
 	"github.com/lucas-clemente/quic-go/qerr"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
-type mockConnectionParametersManager struct {
-	maxIncomingStreams uint32
-	maxOutgoingStreams uint32
-	idleTime           time.Duration
-}
-
-func (m *mockConnectionParametersManager) SetFromMap(map[handshake.Tag][]byte) error {
-	panic("not implemented")
-}
-func (m *mockConnectionParametersManager) GetHelloMap() (map[handshake.Tag][]byte, error) {
-	panic("not implemented")
-}
-func (m *mockConnectionParametersManager) GetSendStreamFlowControlWindow() protocol.ByteCount {
-	return math.MaxUint64
-}
-func (m *mockConnectionParametersManager) GetSendConnectionFlowControlWindow() protocol.ByteCount {
-	return math.MaxUint64
-}
-func (m *mockConnectionParametersManager) GetReceiveStreamFlowControlWindow() protocol.ByteCount {
-	return math.MaxUint64
-}
-func (m *mockConnectionParametersManager) GetMaxReceiveStreamFlowControlWindow() protocol.ByteCount {
-	return math.MaxUint64
-}
-func (m *mockConnectionParametersManager) GetReceiveConnectionFlowControlWindow() protocol.ByteCount {
-	return math.MaxUint64
-}
-func (m *mockConnectionParametersManager) GetMaxReceiveConnectionFlowControlWindow() protocol.ByteCount {
-	return math.MaxUint64
-}
-func (m *mockConnectionParametersManager) GetMaxOutgoingStreams() uint32 { return m.maxOutgoingStreams }
-func (m *mockConnectionParametersManager) GetMaxIncomingStreams() uint32 { return m.maxIncomingStreams }
-func (m *mockConnectionParametersManager) GetIdleConnectionStateLifetime() time.Duration {
-	return m.idleTime
-}
-func (m *mockConnectionParametersManager) TruncateConnectionID() bool { return false }
-
-var _ handshake.ConnectionParametersManager = &mockConnectionParametersManager{}
-
 var _ = Describe("Streams Map", func() {
+	const (
+		maxIncomingStreams = 75
+		maxOutgoingStreams = 60
+	)
+
 	var (
-		cpm handshake.ConnectionParametersManager
-		m   *streamsMap
+		m       *streamsMap
+		mockCpm *mocks.MockConnectionParametersManager
 	)
 
 	setNewStreamsMap := func(p protocol.Perspective) {
-		m = newStreamsMap(nil, p, cpm)
-		m.newStream = func(id protocol.StreamID) (*stream, error) {
-			return &stream{streamID: id}, nil
+		mockCpm = mocks.NewMockConnectionParametersManager(mockCtrl)
+
+		mockCpm.EXPECT().GetMaxOutgoingStreams().AnyTimes().Return(uint32(maxOutgoingStreams))
+		mockCpm.EXPECT().GetMaxIncomingStreams().AnyTimes().Return(uint32(maxIncomingStreams))
+
+		m = newStreamsMap(nil, p, mockCpm)
+		m.newStream = func(id protocol.StreamID) *stream {
+			return &stream{streamID: id}
 		}
 	}
-
-	BeforeEach(func() {
-		cpm = &mockConnectionParametersManager{
-			maxIncomingStreams: 75,
-			maxOutgoingStreams: 60,
-		}
-	})
 
 	AfterEach(func() {
 		Expect(m.openStreams).To(HaveLen(len(m.streams)))
@@ -95,6 +57,13 @@ var _ = Describe("Streams Map", func() {
 					Expect(err).To(MatchError("InvalidStreamID: attempted to open stream 6 from client-side"))
 				})
 
+				It("rejects streams with even IDs, which are lower thatn the highest client-side stream", func() {
+					_, err := m.GetOrOpenStream(5)
+					Expect(err).NotTo(HaveOccurred())
+					_, err = m.GetOrOpenStream(4)
+					Expect(err).To(MatchError("InvalidStreamID: attempted to open stream 4 from client-side"))
+				})
+
 				It("gets existing streams", func() {
 					s, err := m.GetOrOpenStream(5)
 					Expect(err).NotTo(HaveOccurred())
@@ -106,11 +75,11 @@ var _ = Describe("Streams Map", func() {
 				})
 
 				It("returns nil for closed streams", func() {
-					s, err := m.GetOrOpenStream(5)
+					_, err := m.GetOrOpenStream(5)
 					Expect(err).NotTo(HaveOccurred())
 					err = m.RemoveStream(5)
 					Expect(err).NotTo(HaveOccurred())
-					s, err = m.GetOrOpenStream(5)
+					s, err := m.GetOrOpenStream(5)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(s).To(BeNil())
 				})
@@ -134,28 +103,22 @@ var _ = Describe("Streams Map", func() {
 				})
 
 				Context("counting streams", func() {
-					var maxNumStreams int
-
-					BeforeEach(func() {
-						maxNumStreams = int(cpm.GetMaxIncomingStreams())
-					})
-
 					It("errors when too many streams are opened", func() {
-						for i := 0; i < maxNumStreams; i++ {
+						for i := 0; i < maxIncomingStreams; i++ {
 							_, err := m.GetOrOpenStream(protocol.StreamID(i*2 + 1))
 							Expect(err).NotTo(HaveOccurred())
 						}
-						_, err := m.GetOrOpenStream(protocol.StreamID(2*maxNumStreams + 3))
+						_, err := m.GetOrOpenStream(protocol.StreamID(2*maxIncomingStreams + 3))
 						Expect(err).To(MatchError(qerr.TooManyOpenStreams))
 					})
 
 					It("errors when too many streams are opened implicitely", func() {
-						_, err := m.GetOrOpenStream(protocol.StreamID(maxNumStreams*2 + 1))
+						_, err := m.GetOrOpenStream(protocol.StreamID(maxIncomingStreams*2 + 1))
 						Expect(err).To(MatchError(qerr.TooManyOpenStreams))
 					})
 
 					It("does not error when many streams are opened and closed", func() {
-						for i := 2; i < 10*maxNumStreams; i++ {
+						for i := 2; i < 10*maxIncomingStreams; i++ {
 							_, err := m.GetOrOpenStream(protocol.StreamID(i*2 + 1))
 							Expect(err).NotTo(HaveOccurred())
 							m.RemoveStream(protocol.StreamID(i*2 + 1))
@@ -174,13 +137,6 @@ var _ = Describe("Streams Map", func() {
 					Expect(m.numOutgoingStreams).To(BeEquivalentTo(1))
 				})
 
-				It("errors if the stream can't be created", func() {
-					testErr := errors.New("test error")
-					m.newStream = func(protocol.StreamID) (*stream, error) { return nil, testErr }
-					_, err := m.OpenStream()
-					Expect(err).To(MatchError(testErr))
-				})
-
 				It("returns the error when the streamsMap was closed", func() {
 					testErr := errors.New("test error")
 					m.CloseWithError(testErr)
@@ -188,15 +144,20 @@ var _ = Describe("Streams Map", func() {
 					Expect(err).To(MatchError(testErr))
 				})
 
+				It("doesn't reopen an already closed stream", func() {
+					str, err := m.OpenStream()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(str.StreamID()).To(Equal(protocol.StreamID(2)))
+					err = m.RemoveStream(2)
+					Expect(err).ToNot(HaveOccurred())
+					str, err = m.GetOrOpenStream(2)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(str).To(BeNil())
+				})
+
 				Context("counting streams", func() {
-					var maxNumStreams int
-
-					BeforeEach(func() {
-						maxNumStreams = int(cpm.GetMaxOutgoingStreams())
-					})
-
 					It("errors when too many streams are opened", func() {
-						for i := 1; i <= maxNumStreams; i++ {
+						for i := 1; i <= maxOutgoingStreams; i++ {
 							_, err := m.OpenStream()
 							Expect(err).NotTo(HaveOccurred())
 						}
@@ -205,7 +166,7 @@ var _ = Describe("Streams Map", func() {
 					})
 
 					It("does not error when many streams are opened and closed", func() {
-						for i := 2; i < 10*maxNumStreams; i++ {
+						for i := 2; i < 10*maxOutgoingStreams; i++ {
 							str, err := m.OpenStream()
 							Expect(err).NotTo(HaveOccurred())
 							m.RemoveStream(str.StreamID())
@@ -213,11 +174,11 @@ var _ = Describe("Streams Map", func() {
 					})
 
 					It("allows many server- and client-side streams at the same time", func() {
-						for i := 1; i < int(cpm.GetMaxOutgoingStreams()); i++ {
+						for i := 1; i < maxOutgoingStreams; i++ {
 							_, err := m.OpenStream()
 							Expect(err).ToNot(HaveOccurred())
 						}
-						for i := 0; i < int(cpm.GetMaxIncomingStreams()); i++ {
+						for i := 0; i < maxOutgoingStreams; i++ {
 							_, err := m.GetOrOpenStream(protocol.StreamID(2*i + 1))
 							Expect(err).ToNot(HaveOccurred())
 						}
@@ -225,14 +186,8 @@ var _ = Describe("Streams Map", func() {
 				})
 
 				Context("opening streams synchronously", func() {
-					var maxNumStreams int
-
-					BeforeEach(func() {
-						maxNumStreams = int(cpm.GetMaxOutgoingStreams())
-					})
-
 					openMaxNumStreams := func() {
-						for i := 1; i <= maxNumStreams; i++ {
+						for i := 1; i <= maxOutgoingStreams; i++ {
 							_, err := m.OpenStream()
 							Expect(err).NotTo(HaveOccurred())
 						}
@@ -256,14 +211,7 @@ var _ = Describe("Streams Map", func() {
 						err := m.RemoveStream(6)
 						Expect(err).ToNot(HaveOccurred())
 						Eventually(func() bool { return returned }).Should(BeTrue())
-						Expect(str.StreamID()).To(Equal(protocol.StreamID(2*maxNumStreams + 2)))
-					})
-
-					It("errors if the stream can't be created", func() {
-						testErr := errors.New("test error")
-						m.newStream = func(protocol.StreamID) (*stream, error) { return nil, testErr }
-						_, err := m.OpenStreamSync()
-						Expect(err).To(MatchError(testErr))
+						Expect(str.StreamID()).To(Equal(protocol.StreamID(2*maxOutgoingStreams + 2)))
 					})
 
 					It("stops waiting when an error is registered", func() {
@@ -423,9 +371,16 @@ var _ = Describe("Streams Map", func() {
 				setNewStreamsMap(protocol.PerspectiveClient)
 			})
 
-			Context("client-side streams, as a client", func() {
+			Context("client-side streams", func() {
 				It("rejects streams with odd IDs", func() {
 					_, err := m.GetOrOpenStream(5)
+					Expect(err).To(MatchError("InvalidStreamID: attempted to open stream 5 from server-side"))
+				})
+
+				It("rejects streams with odds IDs, which are lower thatn the highest server-side stream", func() {
+					_, err := m.GetOrOpenStream(6)
+					Expect(err).NotTo(HaveOccurred())
+					_, err = m.GetOrOpenStream(5)
 					Expect(err).To(MatchError("InvalidStreamID: attempted to open stream 5 from server-side"))
 				})
 
@@ -443,6 +398,17 @@ var _ = Describe("Streams Map", func() {
 					Expect(m.streams).To(HaveKey(protocol.StreamID(2)))
 					Expect(m.streams).To(HaveKey(protocol.StreamID(4)))
 					Expect(m.streams).To(HaveKey(protocol.StreamID(6)))
+				})
+
+				It("doesn't reopen an already closed stream", func() {
+					str, err := m.OpenStream()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(str.StreamID()).To(Equal(protocol.StreamID(1)))
+					err = m.RemoveStream(1)
+					Expect(err).ToNot(HaveOccurred())
+					str, err = m.GetOrOpenStream(1)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(str).To(BeNil())
 				})
 			})
 
@@ -462,6 +428,16 @@ var _ = Describe("Streams Map", func() {
 					s2, err := m.OpenStream()
 					Expect(err).ToNot(HaveOccurred())
 					Expect(s2.StreamID()).To(Equal(s1.StreamID() + 2))
+				})
+
+				It("doesn't reopen an already closed stream", func() {
+					_, err := m.GetOrOpenStream(4)
+					Expect(err).ToNot(HaveOccurred())
+					err = m.RemoveStream(4)
+					Expect(err).ToNot(HaveOccurred())
+					str, err := m.GetOrOpenStream(4)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(str).To(BeNil())
 				})
 			})
 

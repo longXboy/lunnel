@@ -4,14 +4,14 @@
 [[projects]]
   name = "github.com/Sirupsen/logrus"
   packages = ["."]
-  revision = "ba1b36c82c5e05c4f912a88eab0dcd91a171688f"
-  version = "v0.11.5"
+  revision = "a3f95b5c423586578a4e099b11a46c2479628cac"
+  version = "1.0.2"
 
 [[projects]]
   branch = "master"
   name = "github.com/aead/chacha20"
   packages = [".","chacha"]
-  revision = "d31a916ded42d1640b9d89a26f8abd53cc96790c"
+  revision = "8d6ce0550041f9d97e7f15ec27ed489f8bbbb0fb"
 
 [[projects]]
   name = "github.com/certifi/gocertifi"
@@ -29,19 +29,25 @@
   branch = "master"
   name = "github.com/getsentry/raven-go"
   packages = ["."]
-  revision = "4fa2ac0d29f801e79a063c0da82d37b5ff2873b2"
+  revision = "d175f85701dfbf44cb0510114c9943e665e60907"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/gin-contrib/sse"
+  packages = ["."]
+  revision = "22d885f9ecc78bf4ee5d72b937e4bbcdc58e8cae"
 
 [[projects]]
   name = "github.com/gin-gonic/gin"
   packages = ["binding","render"]
-  revision = "041ca04a4768ededad44dcc2748f3d47e4b59bde"
-  version = "v1.1.3"
+  revision = "e2212d40c62a98b388a5eb48ecbdcf88534688ba"
+  version = "v1.1.4"
 
 [[projects]]
   branch = "master"
   name = "github.com/golang/protobuf"
   packages = ["proto"]
-  revision = "6e4cc92cc905d5f4a73041c1b8228ea08f4c6147"
+  revision = "0a4f71a498b7c4812f64969510bcb4eca251e33a"
 
 [[projects]]
   branch = "master"
@@ -52,7 +58,8 @@
 [[projects]]
   name = "github.com/klauspost/compress"
   packages = ["snappy"]
-  revision = "f3dce52e0576655d55fd69e74b63da96ad1108f3"
+  revision = "6c8db69c4b49dd4df1fff66996cf556176d0b9bf"
+  version = "v1.2.1"
 
 [[projects]]
   name = "github.com/klauspost/cpuid"
@@ -63,13 +70,14 @@
 [[projects]]
   name = "github.com/klauspost/reedsolomon"
   packages = ["."]
-  revision = "5abf0ee302ccf4834e84f63ff74eca3e8b88e4e2"
-  version = "1.3"
+  revision = "0dd0a0e50cf08519ef842f23ad6108552adc31c5"
+  version = "v1.4"
 
 [[projects]]
   name = "github.com/longXboy/smux"
   packages = ["."]
-  revision = "e3fa4fcc3f033962e39fad06942e48552f8312c2"
+  revision = "abf61b8c18388c768a83029dc16c70d2e061ba63"
+  version = "v1.0.6"
 
 [[projects]]
   branch = "master"
@@ -84,21 +92,16 @@
   revision = "393af48d391698c6ae4219566bfbdfef67269997"
 
 [[projects]]
+  branch = "master"
   name = "github.com/lucas-clemente/quic-go"
-  packages = [".","ackhandler","congestion","crypto","flowcontrol","frames","handshake","protocol","qerr","utils"]
-  revision = "15a51c06c39df96b79076ddb7488e05ee222165c"
+  packages = [".","ackhandler","congestion","crypto","flowcontrol","frames","handshake","internal/utils","protocol","qerr"]
+  revision = "e45a89b55c70dcb58c48bdde0af167fca75ad46c"
 
 [[projects]]
   branch = "master"
   name = "github.com/lucas-clemente/quic-go-certificates"
   packages = ["."]
   revision = "d2f86524cced5186554df90d92529757d22c1cb6"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/manucorporat/sse"
-  packages = ["."]
-  revision = "ee05b128a739a0fb76c7ebd3ae4810c1de808d6d"
 
 [[projects]]
   name = "github.com/mattn/go-isatty"
@@ -121,8 +124,8 @@
 [[projects]]
   name = "github.com/xtaci/kcp-go"
   packages = ["."]
-  revision = "8ed1e5b9e60e1c4cd1b94065ad515c972dd797ef"
-  version = "v3.16"
+  revision = "ecbba09f83427b7fefe2e9f9c394f6d92827e1a6"
+  version = "v3.18"
 
 [[projects]]
   branch = "master"
@@ -131,6 +134,7 @@
   revision = "c25f46c4b94079672242ec48a545e7ca9ebe3aec"
 
 [[projects]]
+  branch = "master"
   name = "github.com/yvasiyarov/gorelic"
   packages = ["."]
   revision = "ae09aa139a2b7f638e2412baceaceebd41eff115"
@@ -145,25 +149,25 @@
   branch = "master"
   name = "golang.org/x/crypto"
   packages = ["blowfish","cast5","curve25519","hkdf","pbkdf2","salsa20","salsa20/salsa","tea","twofish","xtea"]
-  revision = "080743b21912ae11ad9222778a048b795a5aae00"
+  revision = "6914964337150723782436d56b3f21610a74ce7b"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/net"
   packages = ["bpf","context","internal/iana","internal/socket","ipv4"]
-  revision = "3da985ce5951d99de868be4385f21ea6c2b22f24"
+  revision = "ab5485076ff3407ad2d02db054635913f017b0ed"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "b90f89a1e7a9c1f6b918820b3daa7f08488c8594"
+  revision = "7a4fde3fda8ef580a89dbae8138c26041be14299"
 
 [[projects]]
   name = "gopkg.in/gin-gonic/gin.v1"
   packages = ["."]
-  revision = "e2212d40c62a98b388a5eb48ecbdcf88534688ba"
-  version = "v1.1.4"
+  revision = "d459835d2b077e44f7c9b453505ee29881d5d12d"
+  version = "v1.2"
 
 [[projects]]
   name = "gopkg.in/go-playground/validator.v8"
@@ -175,11 +179,11 @@
   branch = "v2"
   name = "gopkg.in/yaml.v2"
   packages = ["."]
-  revision = "cd8b52f8269e0feb286dfeef29f8fe4d5b397e0b"
+  revision = "3b4ad1db5b2a649883ff3782f5f9f6fb52be71af"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "73015fcfda3fb9eccc14f3d083784cc0cbdf61993c44d398011b236a893d01de"
+  inputs-digest = "56ceb3559b1e6770d6d9c98770c15e30feb14ca94355b6ef333bb25d7eba5e53"
   solver-name = "gps-cdcl"
   solver-version = 1

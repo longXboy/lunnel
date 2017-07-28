@@ -2,8 +2,10 @@ package h2quic
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"sync"
+	"time"
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
@@ -20,14 +22,33 @@ type mockStream struct {
 	reset        bool
 	closed       bool
 	remoteClosed bool
+
+	unblockRead chan struct{}
+}
+
+func newMockStream(id protocol.StreamID) *mockStream {
+	return &mockStream{
+		id:          id,
+		unblockRead: make(chan struct{}),
+	}
 }
 
 func (s *mockStream) Close() error                          { s.closed = true; return nil }
 func (s *mockStream) Reset(error)                           { s.reset = true }
 func (s *mockStream) CloseRemote(offset protocol.ByteCount) { s.remoteClosed = true }
 func (s mockStream) StreamID() protocol.StreamID            { return s.id }
+func (s *mockStream) SetDeadline(time.Time) error           { panic("not implemented") }
+func (s *mockStream) SetReadDeadline(time.Time) error       { panic("not implemented") }
+func (s *mockStream) SetWriteDeadline(time.Time) error      { panic("not implemented") }
 
-func (s *mockStream) Read(p []byte) (int, error)  { return s.dataToRead.Read(p) }
+func (s *mockStream) Read(p []byte) (int, error) {
+	n, _ := s.dataToRead.Read(p)
+	if n == 0 { // block if there's no data
+		<-s.unblockRead
+		return 0, io.EOF
+	}
+	return n, nil // never return an EOF
+}
 func (s *mockStream) Write(p []byte) (int, error) { return s.dataWritten.Write(p) }
 
 var _ = Describe("Response Writer", func() {

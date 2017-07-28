@@ -44,7 +44,7 @@ var _ = Describe("non-zero RTT", func() {
 		session, err := Start(command, nil, GinkgoWriter)
 		Expect(err).NotTo(HaveOccurred())
 		defer session.Kill()
-		Eventually(session, 4).Should(Exit(0))
+		Eventually(session, 20).Should(Exit(0))
 		Expect(bytes.Contains(session.Out.Contents(), dataMan.GetData())).To(BeTrue())
 	}
 
@@ -58,9 +58,13 @@ var _ = Describe("non-zero RTT", func() {
 		version := protocol.SupportedVersions[i]
 
 		Context(fmt.Sprintf("with quic version %d", version), func() {
-			It("gets a file with 10ms RTT", func() {
-				runRTTTest(10*time.Millisecond, version)
-			})
+			roundTrips := [...]int{10, 50, 100, 200}
+			for _, rtt := range roundTrips {
+				It(fmt.Sprintf("gets a 500kB file with %dms RTT", rtt), func() {
+					dataMan.GenerateData(dataLen)
+					runRTTTest(time.Duration(rtt)*time.Millisecond, version)
+				})
+			}
 		})
 	}
 })

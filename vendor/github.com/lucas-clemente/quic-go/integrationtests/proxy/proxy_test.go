@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"fmt"
+
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/protocol"
 	. "github.com/onsi/ginkgo"
@@ -38,44 +40,44 @@ var _ = Describe("QUIC Proxy", func() {
 
 	Context("Proxy setup and teardown", func() {
 		It("sets up the UDPProxy", func() {
-			proxy, err := NewQuicProxy("localhost:13370", Opts{RemoteAddr: serverAddr})
+			proxy, err := NewQuicProxy("localhost:0", Opts{RemoteAddr: serverAddr})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(proxy.clientDict).To(HaveLen(0))
 
-			// check that port 13370 is in use
-			addr, err := net.ResolveUDPAddr("udp", "localhost:13370")
+			// check that the proxy port is in use
+			addr, err := net.ResolveUDPAddr("udp", "localhost:"+strconv.Itoa(proxy.LocalPort()))
 			Expect(err).ToNot(HaveOccurred())
 			_, err = net.ListenUDP("udp", addr)
-			Expect(err).To(MatchError("listen udp 127.0.0.1:13370: bind: address already in use"))
-
-			err = proxy.Close() // stopping is tested in the next test
-			Expect(err).ToNot(HaveOccurred())
+			Expect(err).To(MatchError(fmt.Sprintf("listen udp 127.0.0.1:%d: bind: address already in use", proxy.LocalPort())))
+			Expect(proxy.Close()).To(Succeed()) // stopping is tested in the next test
 		})
 
 		It("stops the UDPProxy", func() {
-			proxy, err := NewQuicProxy("localhost:13371", Opts{RemoteAddr: serverAddr})
+			proxy, err := NewQuicProxy("localhost:0", Opts{RemoteAddr: serverAddr})
 			Expect(err).ToNot(HaveOccurred())
+			port := proxy.LocalPort()
 			err = proxy.Close()
 			Expect(err).ToNot(HaveOccurred())
 
-			// check that port 13371 is not in use anymore
-			addr, err := net.ResolveUDPAddr("udp", "localhost:13371")
+			// check that the proxy port is not in use anymore
+			addr, err := net.ResolveUDPAddr("udp", "localhost:"+strconv.Itoa(port))
 			Expect(err).ToNot(HaveOccurred())
-			ln, err := net.ListenUDP("udp", addr)
-			Expect(err).ToNot(HaveOccurred())
-			err = ln.Close()
-			Expect(err).ToNot(HaveOccurred())
+			// sometimes it takes a while for the OS to free the port
+			Eventually(func() error {
+				ln, err := net.ListenUDP("udp", addr)
+				defer ln.Close()
+				return err
+			}).ShouldNot(HaveOccurred())
 		})
 
 		It("has the correct LocalAddr and LocalPort", func() {
-			proxy, err := NewQuicProxy("localhost:13372", Opts{RemoteAddr: serverAddr})
+			proxy, err := NewQuicProxy("localhost:0", Opts{RemoteAddr: serverAddr})
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(proxy.LocalAddr().String()).To(Equal("127.0.0.1:13372"))
-			Expect(proxy.LocalPort()).To(Equal(13372))
+			Expect(proxy.LocalAddr().String()).To(Equal("127.0.0.1:" + strconv.Itoa(proxy.LocalPort())))
+			Expect(proxy.LocalPort()).ToNot(BeZero())
 
-			err = proxy.Close()
-			Expect(err).ToNot(HaveOccurred())
+			Expect(proxy.Close()).To(Succeed())
 		})
 	})
 
@@ -88,10 +90,9 @@ var _ = Describe("QUIC Proxy", func() {
 			proxy                 *QuicProxy
 		)
 
-		// start the proxy on port 10001
 		startProxy := func(opts Opts) {
 			var err error
-			proxy, err = NewQuicProxy("localhost:10001", opts)
+			proxy, err = NewQuicProxy("localhost:0", opts)
 			Expect(err).ToNot(HaveOccurred())
 			clientConn, err = net.DialUDP("udp", nil, proxy.LocalAddr().(*net.UDPAddr))
 			Expect(err).ToNot(HaveOccurred())
@@ -257,7 +258,16 @@ var _ = Describe("QUIC Proxy", func() {
 		})
 
 		Context("Delay Callback", func() {
+			expectDelay := func(startTime time.Time, rtt time.Duration, numRTTs int) {
+				expectedReceiveTime := startTime.Add(time.Duration(numRTTs) * rtt)
+				Expect(time.Now()).To(SatisfyAll(
+					BeTemporally(">=", expectedReceiveTime),
+					BeTemporally("<", expectedReceiveTime.Add(rtt/2)),
+				))
+			}
+
 			It("delays incoming packets", func() {
+				delay := 300 * time.Millisecond
 				opts := Opts{
 					RemoteAddr: serverAddr,
 					// delay packet 1 by 200 ms
@@ -267,7 +277,7 @@ var _ = Describe("QUIC Proxy", func() {
 						if d == DirectionOutgoing {
 							return 0
 						}
-						return time.Duration(200*p) * time.Millisecond
+						return time.Duration(p) * delay
 					},
 				}
 				startProxy(opts)
@@ -279,14 +289,15 @@ var _ = Describe("QUIC Proxy", func() {
 					Expect(err).ToNot(HaveOccurred())
 				}
 				Eventually(func() []packetData { return serverReceivedPackets }).Should(HaveLen(1))
-				Expect(time.Now()).To(BeTemporally("~", start.Add(200*time.Millisecond), 50*time.Millisecond))
+				expectDelay(start, delay, 1)
 				Eventually(func() []packetData { return serverReceivedPackets }).Should(HaveLen(2))
-				Expect(time.Now()).To(BeTemporally("~", start.Add(400*time.Millisecond), 50*time.Millisecond))
+				expectDelay(start, delay, 2)
 				Eventually(func() []packetData { return serverReceivedPackets }).Should(HaveLen(3))
-				Expect(time.Now()).To(BeTemporally("~", start.Add(600*time.Millisecond), 50*time.Millisecond))
+				expectDelay(start, delay, 3)
 			})
 
 			It("delays outgoing packets", func() {
+				delay := 300 * time.Millisecond
 				opts := Opts{
 					RemoteAddr: serverAddr,
 					// delay packet 1 by 200 ms
@@ -296,7 +307,7 @@ var _ = Describe("QUIC Proxy", func() {
 						if d == DirectionIncoming {
 							return 0
 						}
-						return time.Duration(200*p) * time.Millisecond
+						return time.Duration(p) * delay
 					},
 				}
 				startProxy(opts)
@@ -324,13 +335,13 @@ var _ = Describe("QUIC Proxy", func() {
 				}
 				// the packets should have arrived immediately at the server
 				Eventually(func() []packetData { return serverReceivedPackets }).Should(HaveLen(3))
-				Expect(time.Now()).To(BeTemporally("~", start, 50*time.Millisecond))
+				expectDelay(start, delay, 0)
 				Eventually(func() []packetData { return clientReceivedPackets }).Should(HaveLen(1))
-				Expect(time.Now()).To(BeTemporally("~", start.Add(200*time.Millisecond), 50*time.Millisecond))
+				expectDelay(start, delay, 1)
 				Eventually(func() []packetData { return clientReceivedPackets }).Should(HaveLen(2))
-				Expect(time.Now()).To(BeTemporally("~", start.Add(400*time.Millisecond), 50*time.Millisecond))
+				expectDelay(start, delay, 2)
 				Eventually(func() []packetData { return clientReceivedPackets }).Should(HaveLen(3))
-				Expect(time.Now()).To(BeTemporally("~", start.Add(600*time.Millisecond), 50*time.Millisecond))
+				expectDelay(start, delay, 3)
 			})
 		})
 	})

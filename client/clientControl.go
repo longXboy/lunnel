@@ -34,16 +34,18 @@ import (
 	"github.com/longXboy/lunnel/msg"
 	"github.com/longXboy/lunnel/transport"
 	"github.com/longXboy/smux"
+	"github.com/lucas-clemente/quic-go"
 	"github.com/pkg/errors"
 	"github.com/satori/go.uuid"
 	"golang.org/x/net/context"
 )
 
-func NewControl(conn net.Conn, encryptMode string, transport string, tunnels map[string]msg.Tunnel, lock *sync.Mutex) *Control {
+func NewControl(conn net.Conn, sess quic.Session, encryptMode string, transport string, tunnels map[string]msg.Tunnel, lock *sync.Mutex) *Control {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	ctl := &Control{
 		ctlConn:       conn,
+		sess:          sess,
 		writeChan:     make(chan writeReq, 64),
 		encryptMode:   encryptMode,
 		tunnels:       tunnels,
@@ -70,6 +72,7 @@ type Control struct {
 	ClientID uuid.UUID
 
 	ctlConn         net.Conn
+	sess            quic.Session
 	tunnelsLock     *sync.Mutex
 	tunnels         map[string]msg.Tunnel
 	preMasterSecret []byte
@@ -85,6 +88,93 @@ func (c *Control) Close() {
 	c.cancel()
 	log.WithField("time", time.Now().UnixNano()).Debugln("control closing")
 	return
+}
+
+func (c *Control) listenAndServe() {
+	for {
+		stream, err := c.sess.AcceptStream()
+		if err != nil {
+			c.Close()
+			log.WithFields(log.Fields{"err": err, "time": time.Now().Unix(), "client_id": c.ClientID}).Warningln("pipeAcceptStream failed!")
+			return
+		}
+		mType, tunnel, err := msg.ReadMsg(stream)
+		if err != nil {
+			c.Close()
+			log.WithFields(log.Fields{"err": err, "time": time.Now().Unix(), "client_id": c.ClientID}).Warningln("msg.ReadMsg(tunnelname) failed!")
+			return
+		}
+		if mType != msg.TypeTunnelName {
+			c.Close()
+			log.WithFields(log.Fields{"err": err, "time": time.Now().Unix(), "client_id": c.ClientID}).Warningln("msg.ReadMsg(tunnelname) failed type err!")
+			return
+		}
+		tunnelName := tunnel.(*msg.TunnelName).Name
+		go func() {
+			defer log.CapturePanic()
+
+			defer stream.Close()
+			c.tunnelsLock.Lock()
+			tunnel, isok := c.tunnels[tunnelName]
+			c.tunnelsLock.Unlock()
+			if !isok {
+				log.WithFields(log.Fields{"name": tunnelName}).Errorln("can't find tunnel by name")
+				return
+			}
+			var conn net.Conn
+			var port uint16 = tunnel.Local.Port
+			if tunnel.Local.Schema == "http" || tunnel.Local.Schema == "https" || tunnel.Local.Schema == "tcp" {
+				if tunnel.Local.Port == 0 {
+					if tunnel.Local.Schema == "https" {
+						port = 443
+					} else {
+						port = 80
+					}
+				}
+				conn, err = net.Dial("tcp", fmt.Sprintf("%s:%d", tunnel.Local.Host, port))
+				if err != nil {
+					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr()}).Warningln("pipe dial local failed!")
+					return
+				}
+				if tunnel.Public.Schema == "http" && tunnel.Local.Schema == "https" {
+					conn = tls.Client(conn, &tls.Config{InsecureSkipVerify: tunnel.Local.InsecureSkipVerify, ServerName: tunnel.Local.Host})
+				}
+			} else if tunnel.Local.Schema == "unix" {
+				conn, err = net.Dial("unix", tunnel.Local.Host)
+				if err != nil {
+					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr()}).Warningln("pipe dial local failed!")
+					return
+				}
+			} else {
+				if port == 0 {
+					log.WithFields(log.Fields{"err": fmt.Sprintf("no port sepicified"), "local": tunnel.LocalAddr()}).Errorln("dial local addr failed!")
+					return
+				}
+				conn, err = net.Dial(tunnel.Local.Schema, fmt.Sprintf("%s:%d", tunnel.Local.Host, port))
+				if err != nil {
+					log.WithFields(log.Fields{"err": err, "local": tunnel.LocalAddr()}).Warningln("pipe dial local failed!")
+					return
+				}
+			}
+			defer conn.Close()
+
+			p1die := make(chan struct{})
+			p2die := make(chan struct{})
+
+			go func() {
+				io.Copy(stream, conn)
+				close(p1die)
+			}()
+			go func() {
+				io.Copy(conn, stream)
+				close(p2die)
+			}()
+			select {
+			case <-p1die:
+			case <-p2die:
+			}
+		}()
+	}
 }
 
 func (c *Control) createPipe() {

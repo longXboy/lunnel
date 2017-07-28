@@ -60,7 +60,6 @@ func (s *Stream) Read(b []byte) (n int, err error) {
 	}
 
 READ:
-
 	s.bufferLock.Lock()
 	n, err = s.buffer.Read(b)
 	s.bufferLock.Unlock()

@@ -4,20 +4,25 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
 
+	quic "github.com/lucas-clemente/quic-go"
+
+	"runtime"
+
 	"golang.org/x/net/lex/httplex"
 )
 
-type h2quicClient interface {
-	Dial() error
-	Do(*http.Request) (*http.Response, error)
+type roundTripCloser interface {
+	http.RoundTripper
+	io.Closer
 }
 
-// QuicRoundTripper implements the http.RoundTripper interface
-type QuicRoundTripper struct {
+// RoundTripper implements the http.RoundTripper interface
+type RoundTripper struct {
 	mutex sync.Mutex
 
 	// DisableCompression, if true, prevents the Transport from
@@ -34,13 +39,17 @@ type QuicRoundTripper struct {
 	// tls.Client. If nil, the default configuration is used.
 	TLSClientConfig *tls.Config
 
-	clients map[string]h2quicClient
+	// QuicConfig is the quic.Config used for dialing new connections.
+	// If nil, reasonable default values will be used.
+	QuicConfig *quic.Config
+
+	clients map[string]roundTripCloser
 }
 
-var _ http.RoundTripper = &QuicRoundTripper{}
+var _ roundTripCloser = &RoundTripper{}
 
 // RoundTrip does a round trip
-func (r *QuicRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+func (r *RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL == nil {
 		closeRequestBody(req)
 		return nil, errors.New("quic: nil Request.URL")
@@ -76,35 +85,41 @@ func (r *QuicRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	hostname := authorityAddr("https", hostnameFromRequest(req))
-	client, err := r.getClient(hostname)
-	if err != nil {
-		return nil, err
-	}
-	return client.Do(req)
+	return r.getClient(hostname).RoundTrip(req)
 }
 
-func (r *QuicRoundTripper) getClient(hostname string) (h2quicClient, error) {
+func (r *RoundTripper) getClient(hostname string) http.RoundTripper {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
 	if r.clients == nil {
-		r.clients = make(map[string]h2quicClient)
+		runtime.SetFinalizer(r, finalizer)
+		r.clients = make(map[string]roundTripCloser)
 	}
 
 	client, ok := r.clients[hostname]
 	if !ok {
-		client = NewClient(r, r.TLSClientConfig, hostname)
-		err := client.Dial()
-		if err != nil {
-			return nil, err
-		}
+		client = newClient(hostname, r.TLSClientConfig, &roundTripperOpts{DisableCompression: r.DisableCompression}, r.QuicConfig)
 		r.clients[hostname] = client
 	}
-	return client, nil
+	return client
 }
 
-func (r *QuicRoundTripper) disableCompression() bool {
-	return r.DisableCompression
+func finalizer(r *RoundTripper) {
+	_ = r.Close()
+}
+
+// Close closes the QUIC connections that this RoundTripper has used
+func (r *RoundTripper) Close() error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	for _, client := range r.clients {
+		if err := client.Close(); err != nil {
+			return err
+		}
+	}
+	r.clients = nil
+	return nil
 }
 
 func closeRequestBody(req *http.Request) {

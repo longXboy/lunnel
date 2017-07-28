@@ -91,6 +91,65 @@ func dialServer(transportMode string) (conn net.Conn, err error) {
 	}
 	return
 }
+func dialAndRunQuic() {
+	defer time.Sleep(time.Duration(time.Second * reconnectInterval))
+	log.WithFields(log.Fields{"transportMode": "quic"}).Infoln("trying to create control conn to server")
+	tlsConfig, err := LoadTLSConfig([]string{cliConf.Tls.TrustedCert})
+	if err != nil {
+		log.WithFields(log.Fields{"trusted cert": cliConf.Tls.TrustedCert, "err": err}).Fatalln("load tls trusted cert failed!")
+		return
+	}
+	tlsConfig.ServerName = cliConf.Tls.ServerName
+
+	sess, err := transport.CreateQuicSess(cliConf.ServerUdpAddr, tlsConfig)
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).Warnln("CreateQuicSess failed!")
+		return
+	}
+	defer sess.Close(nil)
+	stream, err := sess.OpenStream()
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).Warnln("openstream failed!")
+		return
+	}
+	defer stream.Close()
+
+	chello := msg.ClientHello{EncryptMode: "none", EnableCompress: false, Version: version.Version}
+	err = msg.WriteMsg(stream, msg.TypeClientHello, chello)
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).Warnln("write ControlClientHello failed!")
+		return
+	}
+	mType, body, err := msg.ReadMsg(stream)
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).Warnln("read server hello failed!")
+		return
+	}
+	if mType == msg.TypeError {
+		serverError := body.(*msg.Error)
+		log.WithFields(log.Fields{"server error": serverError.Error()}).Errorln("client hello failed!")
+		return
+	} else if mType == msg.TypeServerHello {
+		log.Debugln("recv msg serer hello success")
+	}
+
+	qc := &transport.QuicConn{Sess: sess}
+	qc.Stream = stream
+
+	ctl := NewControl(qc, sess, cliConf.EncryptMode, "quic", tunnels, &tunnelsLock)
+	err = ctl.clientHandShake()
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientHandShake failed!")
+		return
+	}
+	log.WithFields(log.Fields{"client_id": ctl.ClientID.String(), "version": version.Version}).Infoln("server handshake success!")
+	err = ctl.ClientAddTunnels()
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientSyncTunnels failed!")
+		return
+	}
+	ctl.Run()
+}
 
 func dialAndRun(transportMode string) {
 	defer time.Sleep(time.Duration(time.Second * reconnectInterval))
@@ -159,7 +218,7 @@ func dialAndRun(transportMode string) {
 		return
 	}
 
-	ctl := NewControl(stream, cliConf.EncryptMode, transportMode, tunnels, &tunnelsLock)
+	ctl := NewControl(stream, nil, cliConf.EncryptMode, transportMode, tunnels, &tunnelsLock)
 	err = ctl.clientHandShake()
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientHandShake failed!")

@@ -86,7 +86,7 @@ var _ = Describe("Server tests", func() {
 				"--certificate_file="+filepath.Join(tmpDir, "cert.pem"),
 				"--port="+serverPort,
 			)
-			session, err = Start(command, GinkgoWriter, GinkgoWriter)
+			session, err = Start(command, nil, GinkgoWriter)
 			Expect(err).NotTo(HaveOccurred())
 		}()
 	}
@@ -148,7 +148,7 @@ var _ = Describe("Server tests", func() {
 		certPool := x509.NewCertPool()
 		certPool.AddCert(CACert)
 		client = &http.Client{
-			Transport: &h2quic.QuicRoundTripper{
+			Transport: &h2quic.RoundTripper{
 				TLSClientConfig: &tls.Config{RootCAs: certPool},
 			},
 		}

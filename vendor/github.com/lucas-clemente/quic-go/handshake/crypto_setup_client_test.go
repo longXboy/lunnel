@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/lucas-clemente/quic-go/crypto"
+	"github.com/lucas-clemente/quic-go/internal/utils"
 	"github.com/lucas-clemente/quic-go/protocol"
 	"github.com/lucas-clemente/quic-go/qerr"
-	"github.com/lucas-clemente/quic-go/utils"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -111,7 +111,9 @@ var _ = Describe("Client Crypto Setup", func() {
 			version,
 			stream,
 			nil,
-			NewConnectionParamatersManager(protocol.PerspectiveClient, version),
+			NewConnectionParamatersManager(protocol.PerspectiveClient, version,
+				protocol.DefaultMaxReceiveStreamFlowControlWindowClient, protocol.DefaultMaxReceiveConnectionFlowControlWindowClient,
+			),
 			aeadChanged,
 			&TransportParameters{},
 			nil,
@@ -686,6 +688,13 @@ var _ = Describe("Client Crypto Setup", func() {
 				Expect(d).To(Equal(foobarFNVSigned))
 			})
 
+			It("is used for the crypto stream", func() {
+				enc, seal := cs.GetSealerForCryptoStream()
+				Expect(enc).To(Equal(protocol.EncryptionUnencrypted))
+				d := seal(nil, []byte("foobar"), 0, []byte{})
+				Expect(d).To(Equal(foobarFNVSigned))
+			})
+
 			It("is accepted initially", func() {
 				d, enc, err := cs.Open(nil, foobarFNVSigned, 0, []byte{})
 				Expect(err).ToNot(HaveOccurred())
@@ -744,6 +753,14 @@ var _ = Describe("Client Crypto Setup", func() {
 				Expect(err).To(MatchError("authentication failed"))
 				Expect(enc).To(Equal(protocol.EncryptionUnspecified))
 			})
+
+			It("is not used for the crypto stream", func() {
+				doCompleteREJ()
+				enc, seal := cs.GetSealerForCryptoStream()
+				Expect(enc).To(Equal(protocol.EncryptionUnencrypted))
+				d := seal(nil, []byte("foobar"), 0, []byte{})
+				Expect(d).To(Equal(foobarFNVSigned))
+			})
 		})
 
 		Context("forward-secure encryption", func() {
@@ -756,6 +773,14 @@ var _ = Describe("Client Crypto Setup", func() {
 				Expect(enc).To(Equal(protocol.EncryptionForwardSecure))
 				d := seal(nil, []byte("foobar"), 0, []byte{})
 				Expect(d).To(Equal([]byte("foobar forward sec")))
+			})
+
+			It("is not used for the crypto stream", func() {
+				doSHLO()
+				enc, seal := cs.GetSealerForCryptoStream()
+				Expect(enc).To(Equal(protocol.EncryptionUnencrypted))
+				d := seal(nil, []byte("foobar"), 0, []byte{})
+				Expect(d).To(Equal(foobarFNVSigned))
 			})
 		})
 

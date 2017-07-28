@@ -92,11 +92,10 @@ func CreateTCPConn(addr string, httpProxy string) (net.Conn, error) {
 		tcpConn.SetDeadline(time.Time{})
 	}
 	return tcpConn, nil
-
 }
 
 func ListenQuic(addr string, tlsConfig *tls.Config) (quic.Listener, error) {
-	lis, err := quic.ListenAddr(addr, &quic.Config{TLSConfig: tlsConfig})
+	lis, err := quic.ListenAddr(addr, tlsConfig, &quic.Config{})
 	if err != nil {
 		return nil, errors.Wrap(err, "listen quic")
 	}
@@ -104,11 +103,24 @@ func ListenQuic(addr string, tlsConfig *tls.Config) (quic.Listener, error) {
 }
 
 func CreateQuicSess(addr string, tlsConfig *tls.Config) (quic.Session, error) {
-	sess, err := quic.DialAddr(addr, &quic.Config{TLSConfig: tlsConfig})
+	sess, err := quic.DialAddr(addr, tlsConfig, &quic.Config{})
 	if err != nil {
 		return nil, errors.Wrap(err, "quic.DialAddr")
 	}
 	return sess, nil
+}
+
+type QuicConn struct {
+	quic.Stream
+	Sess quic.Session
+}
+
+func (qc *QuicConn) LocalAddr() net.Addr {
+	return qc.Sess.LocalAddr()
+}
+
+func (qc *QuicConn) RemoteAddr() net.Addr {
+	return qc.Sess.RemoteAddr()
 }
 
 func CreateKCPConn(addr string) (net.Conn, error) {

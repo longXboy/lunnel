@@ -10,9 +10,9 @@ import (
 
 	"github.com/lucas-clemente/quic-go/crypto"
 	"github.com/lucas-clemente/quic-go/handshake"
+	"github.com/lucas-clemente/quic-go/internal/utils"
 	"github.com/lucas-clemente/quic-go/protocol"
 	"github.com/lucas-clemente/quic-go/qerr"
-	"github.com/lucas-clemente/quic-go/utils"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -23,6 +23,7 @@ type mockSession struct {
 	packetCount       int
 	closed            bool
 	closeReason       error
+	closedRemote      bool
 	stopRunLoop       chan struct{} // run returns as soon as this channel receives a value
 	handshakeChan     chan handshakeEvent
 	handshakeComplete chan error // for WaitUntilHandshakeComplete
@@ -39,6 +40,9 @@ func (s *mockSession) run() error {
 func (s *mockSession) WaitUntilHandshakeComplete() error {
 	return <-s.handshakeComplete
 }
+func (*mockSession) WaitUntilClosed() {
+	panic("not implemented")
+}
 func (s *mockSession) Close(e error) error {
 	if s.closed {
 		return nil
@@ -47,6 +51,12 @@ func (s *mockSession) Close(e error) error {
 	s.closed = true
 	close(s.stopRunLoop)
 	return nil
+}
+func (s *mockSession) closeRemote(e error) {
+	s.closeReason = e
+	s.closed = true
+	s.closedRemote = true
+	close(s.stopRunLoop)
 }
 func (s *mockSession) AcceptStream() (Stream, error) {
 	panic("not implemented")
@@ -72,6 +82,7 @@ func newMockSession(
 	_ protocol.VersionNumber,
 	connectionID protocol.ConnectionID,
 	_ *handshake.ServerConfig,
+	_ *tls.Config,
 	_ *Config,
 ) (packetHandler, <-chan handshakeEvent, error) {
 	s := mockSession{
@@ -92,10 +103,7 @@ var _ = Describe("Server", func() {
 
 	BeforeEach(func() {
 		conn = &mockPacketConn{}
-		config = &Config{
-			TLSConfig: &tls.Config{},
-			Versions:  protocol.SupportedVersions,
-		}
+		config = &Config{Versions: protocol.SupportedVersions}
 	})
 
 	Context("with mock session", func() {
@@ -222,7 +230,7 @@ var _ = Describe("Server", func() {
 		})
 
 		It("closes sessions and the connection when Close is called", func() {
-			session, _, _ := newMockSession(nil, 0, 0, nil, nil)
+			session, _, _ := newMockSession(nil, 0, 0, nil, nil, nil)
 			serv.sessions[1] = session
 			err := serv.Close()
 			Expect(err).NotTo(HaveOccurred())
@@ -238,8 +246,15 @@ var _ = Describe("Server", func() {
 			Expect(serv.sessions[connID]).To(BeNil())
 		})
 
+		It("works if no quic.Config is given", func(done Done) {
+			ln, err := ListenAddr("127.0.0.1:0", nil, config)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(ln.Close()).To(Succeed())
+			close(done)
+		}, 1)
+
 		It("closes properly", func() {
-			ln, err := ListenAddr("127.0.0.1:0", config)
+			ln, err := ListenAddr("127.0.0.1:0", nil, config)
 			Expect(err).ToNot(HaveOccurred())
 
 			var returned bool
@@ -265,7 +280,7 @@ var _ = Describe("Server", func() {
 		}, 0.5)
 
 		It("closes all sessions when encountering a connection error", func() {
-			session, _, _ := newMockSession(nil, 0, 0, nil, nil)
+			session, _, _ := newMockSession(nil, 0, 0, nil, nil, nil)
 			serv.sessions[0x12345] = session
 			Expect(serv.sessions[0x12345].(*mockSession).closed).To(BeFalse())
 			testErr := errors.New("connection error")
@@ -345,32 +360,33 @@ var _ = Describe("Server", func() {
 		supportedVersions := []protocol.VersionNumber{1, 3, 5}
 		acceptSTK := func(_ net.Addr, _ *STK) bool { return true }
 		config := Config{
-			TLSConfig: &tls.Config{},
-			Versions:  supportedVersions,
-			AcceptSTK: acceptSTK,
+			Versions:         supportedVersions,
+			AcceptSTK:        acceptSTK,
+			HandshakeTimeout: 1337 * time.Hour,
 		}
-		ln, err := Listen(conn, &config)
+		ln, err := Listen(conn, &tls.Config{}, &config)
 		Expect(err).ToNot(HaveOccurred())
 		server := ln.(*server)
 		Expect(server.deleteClosedSessionsAfter).To(Equal(protocol.ClosedSessionDeleteTimeout))
 		Expect(server.sessions).ToNot(BeNil())
 		Expect(server.scfg).ToNot(BeNil())
 		Expect(server.config.Versions).To(Equal(supportedVersions))
+		Expect(server.config.HandshakeTimeout).To(Equal(1337 * time.Hour))
 		Expect(reflect.ValueOf(server.config.AcceptSTK)).To(Equal(reflect.ValueOf(acceptSTK)))
 	})
 
 	It("fills in default values if options are not set in the Config", func() {
-		config := Config{TLSConfig: &tls.Config{}}
-		ln, err := Listen(conn, &config)
+		ln, err := Listen(conn, &tls.Config{}, &Config{})
 		Expect(err).ToNot(HaveOccurred())
 		server := ln.(*server)
 		Expect(server.config.Versions).To(Equal(protocol.SupportedVersions))
+		Expect(server.config.HandshakeTimeout).To(Equal(protocol.DefaultHandshakeTimeout))
 		Expect(reflect.ValueOf(server.config.AcceptSTK)).To(Equal(reflect.ValueOf(defaultAcceptSTK)))
 	})
 
 	It("listens on a given address", func() {
 		addr := "127.0.0.1:13579"
-		ln, err := ListenAddr(addr, config)
+		ln, err := ListenAddr(addr, nil, config)
 		Expect(err).ToNot(HaveOccurred())
 		serv := ln.(*server)
 		Expect(serv.Addr().String()).To(Equal(addr))
@@ -378,13 +394,13 @@ var _ = Describe("Server", func() {
 
 	It("errors if given an invalid address", func() {
 		addr := "127.0.0.1"
-		_, err := ListenAddr(addr, config)
+		_, err := ListenAddr(addr, nil, config)
 		Expect(err).To(BeAssignableToTypeOf(&net.AddrError{}))
 	})
 
 	It("errors if given an invalid address", func() {
 		addr := "1.1.1.1:1111"
-		_, err := ListenAddr(addr, config)
+		_, err := ListenAddr(addr, nil, config)
 		Expect(err).To(BeAssignableToTypeOf(&net.OpError{}))
 	})
 
@@ -401,7 +417,7 @@ var _ = Describe("Server", func() {
 		b.Write(bytes.Repeat([]byte{0}, protocol.ClientHelloMinimumSize)) // add a fake CHLO
 		conn.dataToRead = b.Bytes()
 		conn.dataReadFrom = udpAddr
-		ln, err := Listen(conn, config)
+		ln, err := Listen(conn, nil, config)
 		Expect(err).ToNot(HaveOccurred())
 
 		var returned bool
@@ -425,7 +441,7 @@ var _ = Describe("Server", func() {
 	It("sends a PublicReset for new connections that don't have the VersionFlag set", func() {
 		conn.dataReadFrom = udpAddr
 		conn.dataToRead = []byte{0x08, 0xf6, 0x19, 0x86, 0x66, 0x9b, 0x9f, 0xfa, 0x4c, 0x01}
-		ln, err := Listen(conn, config)
+		ln, err := Listen(conn, nil, config)
 		Expect(err).ToNot(HaveOccurred())
 		go func() {
 			defer GinkgoRecover()

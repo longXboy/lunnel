@@ -20,18 +20,26 @@ import (
 	"sync/atomic"
 
 	"github.com/e-dard/netbug"
+	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/middleware"
+	"github.com/go-chi/render"
 	"github.com/longXboy/lunnel/log"
 	"github.com/longXboy/lunnel/msg"
 	"github.com/satori/go.uuid"
-	"gopkg.in/gin-gonic/gin.v1"
 )
 
 type tunnelStateReq struct {
 	PublicUrl string
 }
 
-type tunnelStateResp struct {
-	Tunnels []string
+func (u *tunnelStateReq) Bind(r *http.Request) error {
+	return nil
+}
+
+type tunnelStateResp string
+
+func (rd *tunnelStateResp) Render(w http.ResponseWriter, r *http.Request) error {
+	return nil
 }
 
 type clientState struct {
@@ -46,27 +54,25 @@ type clientState struct {
 	IdlePipes      uint32
 }
 
+func (rd *clientState) Render(w http.ResponseWriter, r *http.Request) error {
+	return nil
+}
+
 type tunnelState struct {
 	ClientId string `json:",omitempty"`
 	Tunnel   msg.Tunnel
 	IsClosed bool
 }
 
-type clientStateResp struct {
-	Clients []clientState
-}
-
 func listenAndServeManage() {
-	if serverConf.Debug {
-		gin.SetMode("debug")
-	} else {
-		gin.SetMode("release")
-	}
-	r := gin.New()
-	r.GET("/v1/tunnels", tunnelsQuery)
-	r.POST("/v1/tunnels", tunnelQuery)
-	r.GET("/v1/clients", clientsQuery)
-	r.GET("/v1/clients/clientId", clientQuery)
+	r := chi.NewRouter()
+	r.Use(middleware.URLFormat)
+	r.Use(render.SetContentType(render.ContentTypeJSON))
+
+	r.Get("/v1/tunnels", tunnelsQuery)
+	r.Post("/v1/tunnels", tunnelQuery)
+	r.Get("/v1/clients", clientsQuery)
+	r.Get("/v1/clients/clientId", clientQuery)
 
 	mux := http.NewServeMux()
 	if serverConf.PProfEnable {
@@ -81,47 +87,47 @@ func listenAndServeManage() {
 	}
 }
 
-func tunnelQuery(c *gin.Context) {
+func tunnelQuery(w http.ResponseWriter, r *http.Request) {
 	var query tunnelStateReq
-	err := c.BindJSON(&query)
+	err := render.Bind(r, &query)
 	if err != nil {
-		c.String(http.StatusBadRequest, fmt.Sprintf("unmarshal req body failed!"))
+		http.Error(w, "unmarshal req body failed!", http.StatusBadRequest)
 		return
 	}
-
-	var tunnelStats tunnelStateResp = tunnelStateResp{Tunnels: []string{}}
+	var tunnelStats []render.Renderer
 	if query.PublicUrl != "" {
 		TunnelMapLock.RLock()
 		tunnel, isok := TunnelMap[query.PublicUrl]
 		TunnelMapLock.RUnlock()
 		if isok {
-			tunnelStats.Tunnels = append(tunnelStats.Tunnels, tunnel.tunnelConfig.PublicAddr())
+			r := tunnelStateResp(tunnel.tunnelConfig.PublicAddr())
+			tunnelStats = append(tunnelStats, &r)
 		}
 	}
-
-	c.JSON(http.StatusOK, tunnelStats)
+	render.RenderList(w, r, tunnelStats)
 }
 
-func tunnelsQuery(c *gin.Context) {
-	var tunnelStats tunnelStateResp = tunnelStateResp{Tunnels: []string{}}
+func tunnelsQuery(w http.ResponseWriter, r *http.Request) {
+	var tunnelStats []render.Renderer
 
 	TunnelMapLock.RLock()
 	for _, v := range TunnelMap {
-		tunnelStats.Tunnels = append(tunnelStats.Tunnels, v.tunnelConfig.PublicAddr())
+		r := tunnelStateResp(v.tunnelConfig.PublicAddr())
+		tunnelStats = append(tunnelStats, &r)
 	}
 	TunnelMapLock.RUnlock()
 
-	c.JSON(http.StatusOK, tunnelStats)
+	render.RenderList(w, r, tunnelStats)
 }
 
-func clientQuery(c *gin.Context) {
-	clientId := c.Param("clientId")
+func clientQuery(w http.ResponseWriter, r *http.Request) {
+	clientId := chi.URLParam(r, "clientId")
 	uuid, err := uuid.FromString(clientId)
 	if err != nil {
-		c.String(http.StatusBadRequest, fmt.Sprintf("invalid uuid"))
+		http.Error(w, "invalid uuid!", http.StatusBadRequest)
 		return
 	}
-	var clientStates clientStateResp = clientStateResp{Clients: []clientState{}}
+	var clientStates []render.Renderer
 	ControlMapLock.RLock()
 	ctlClient := ControlMap[uuid]
 	ControlMapLock.RUnlock()
@@ -138,12 +144,12 @@ func clientQuery(c *gin.Context) {
 	client.EncryptMode = ctlClient.encryptMode
 	client.Id = ctlClient.ClientID.String()
 	client.Version = ctlClient.version
-	clientStates.Clients = append(clientStates.Clients, client)
-	c.JSON(http.StatusOK, clientStates)
+	clientStates = append(clientStates, &client)
+	render.RenderList(w, r, clientStates)
 }
 
-func clientsQuery(c *gin.Context) {
-	var clientStates clientStateResp = clientStateResp{Clients: []clientState{}}
+func clientsQuery(w http.ResponseWriter, r *http.Request) {
+	var clientStates []render.Renderer
 	clients := make([]*Control, 0)
 	ControlMapLock.RLock()
 	for _, v := range ControlMap {
@@ -166,7 +172,7 @@ func clientsQuery(c *gin.Context) {
 		client.EncryptMode = c.encryptMode
 		client.Id = c.ClientID.String()
 		client.Version = c.version
-		clientStates.Clients = append(clientStates.Clients, client)
+		clientStates = append(clientStates, &client)
 	}
-	c.JSON(http.StatusOK, clientStates)
+	render.RenderList(w, r, clientStates)
 }
