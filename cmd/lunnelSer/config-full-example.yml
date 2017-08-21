@@ -14,9 +14,9 @@ aes:
   #aes密钥
   secret_key: password
 tls:
-  #tls公钥
+  #tls证书
   cert: ./example.crt
-  #tls私钥
+  #tls证书私钥
   key: ./example.key
 #是否开启DEBUG日志模式
 debug: true

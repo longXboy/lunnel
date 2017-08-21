@@ -1,19 +1,15 @@
 package transport
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
-	"math/big"
 	"testing"
 	"time"
+
+	"github.com/longXboy/lunnel/util"
 )
 
 func Test_Quic(t *testing.T) {
-	tlsConfig := generateTLSConfig()
+	tlsConfig := util.GenerateTLSConfig()
 	go func() {
 		lis, err := ListenQuic(":8080", tlsConfig)
 		if err != nil {
@@ -90,25 +86,4 @@ func Test_Quic(t *testing.T) {
 		fmt.Println(string(temp[:nRead]))
 		break
 	}
-}
-
-// Setup a bare-bones TLS config for the server
-func generateTLSConfig() *tls.Config {
-	key, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		panic(err)
-	}
-	template := x509.Certificate{SerialNumber: big.NewInt(1)}
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
-	if err != nil {
-		panic(err)
-	}
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-
-	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		panic(err)
-	}
-	return &tls.Config{Certificates: []tls.Certificate{tlsCert}}
 }

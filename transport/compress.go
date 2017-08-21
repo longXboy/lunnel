@@ -15,20 +15,20 @@
 package transport
 
 import (
-	"io"
+	"net"
 
 	"github.com/klauspost/compress/snappy"
 )
 
 type CompStream struct {
-	conn io.ReadWriteCloser
-	w    *snappy.Writer
-	r    *snappy.Reader
+	net.Conn
+	w *snappy.Writer
+	r *snappy.Reader
 }
 
-func NewCompStream(conn io.ReadWriteCloser) *CompStream {
+func NewCompStream(conn net.Conn) net.Conn {
 	c := new(CompStream)
-	c.conn = conn
+	c.Conn = conn
 	c.w = snappy.NewBufferedWriter(conn)
 	c.r = snappy.NewReader(conn)
 	return c
@@ -44,5 +44,5 @@ func (c *CompStream) Write(p []byte) (n int, err error) {
 }
 
 func (c *CompStream) Close() error {
-	return c.conn.Close()
+	return c.Conn.Close()
 }

@@ -17,11 +17,11 @@ package server
 import (
 	"crypto/tls"
 	"fmt"
-	"io"
 	rawLog "log"
 	"net"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/getsentry/raven-go"
@@ -30,11 +30,15 @@ import (
 	"github.com/longXboy/lunnel/log"
 	"github.com/longXboy/lunnel/msg"
 	"github.com/longXboy/lunnel/transport"
+	"github.com/longXboy/lunnel/util"
 	"github.com/longXboy/lunnel/vhost"
 	"github.com/longXboy/smux"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/yvasiyarov/gorelic"
 )
+
+var tlsConfig *tls.Config
+var once sync.Once
 
 func Main(configDetail []byte, configType string) {
 	err := LoadConfig(configDetail, configType)
@@ -82,10 +86,29 @@ func Main(configDetail []byte, configType string) {
 
 	go serveHttp(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpPort))
 	go serveHttps(fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.HttpsPort))
-	go listenAndServe("kcp")
+	go listenAndServeQuic()
 	go listenAndServe("tcp")
 
 	listenAndServeManage()
+}
+
+func listenAndServeQuic() {
+	tlsConfig := newTlsConfig()
+
+	addr := fmt.Sprintf("%s:%d", serverConf.ListenIP, serverConf.ListenPort)
+	lis, err := transport.ListenQuic(addr, tlsConfig)
+	if err != nil {
+		log.WithFields(log.Fields{"address": addr, "protocol": "quic", "err": err}).Fatalln("server's control listen failed!")
+		return
+	}
+	log.WithFields(log.Fields{"address": addr, "protocol": "quic"}).Infoln("server's control listen at")
+	for {
+		if sess, err := lis.Accept(); err == nil {
+			go handleQuic(sess)
+		} else {
+			log.WithFields(log.Fields{"err": err}).Errorln("lis.Accept failed!")
+		}
+	}
 }
 
 func listenAndServe(transportMode string) {
@@ -96,7 +119,13 @@ func listenAndServe(transportMode string) {
 		return
 	}
 	log.WithFields(log.Fields{"address": addr, "protocol": transportMode}).Infoln("server's control listen at")
-	serve(lis)
+	for {
+		if conn, err := lis.Accept(); err == nil {
+			go handleConn(conn)
+		} else {
+			log.WithFields(log.Fields{"err": err}).Errorln("lis.Accept failed!")
+		}
+	}
 }
 
 func handleQuic(sess quic.Session) {
@@ -136,11 +165,23 @@ func handleQuic(sess quic.Session) {
 			return
 		}
 	}
-
 	log.WithFields(log.Fields{"encrypt_mode": body.(*msg.ClientHello).EncryptMode}).Debugln("new client hello")
 	qc := &transport.QuicConn{Sess: sess}
 	qc.Stream = stream
-	handleControl(qc, sess, clientHello)
+
+	var underlyingConn net.Conn = qc
+	if clientHello.EncryptMode == "aes" {
+		underlyingConn, err = crypto.NewCryptoStream(underlyingConn, []byte(serverConf.Aes.SecretKey))
+		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Errorln("client hello,crypto.NewCryptoConn failed!")
+			return
+		}
+	}
+	if clientHello.EnableCompress {
+		underlyingConn = transport.NewCompStream(underlyingConn)
+	}
+
+	handleControl(underlyingConn, sess, clientHello)
 }
 
 func handleConn(conn net.Conn) {
@@ -172,14 +213,10 @@ func handleConn(conn net.Conn) {
 				return
 			}
 		}
-		var underlyingConn io.ReadWriteCloser
+		var underlyingConn net.Conn
 		var err error
 		if clientHello.EncryptMode == "tls" {
-			tlsConfig, err := newTlsConfig()
-			if err != nil {
-				conn.Close()
-				return
-			}
+			tlsConfig = newTlsConfig()
 			underlyingConn = tls.Server(conn, tlsConfig)
 		} else if clientHello.EncryptMode == "aes" {
 			underlyingConn, err = crypto.NewCryptoStream(conn, []byte(serverConf.Aes.SecretKey))
@@ -221,17 +258,6 @@ func handleConn(conn net.Conn) {
 	} else {
 		log.WithFields(log.Fields{"msgType": mType, "body": body}).Errorln("read handshake msg invalid type!")
 	}
-}
-
-func serve(lis net.Listener) {
-	for {
-		if conn, err := lis.Accept(); err == nil {
-			go handleConn(conn)
-		} else {
-			log.WithFields(log.Fields{"err": err}).Errorln("lis.Accept failed!")
-		}
-	}
-
 }
 
 func handleHttpsConn(conn net.Conn) {
@@ -319,16 +345,22 @@ func serveHttp(addr string) {
 	}
 }
 
-func newTlsConfig() (*tls.Config, error) {
-	var err error
-	tlsConfig := &tls.Config{}
-	tlsConfig.Certificates = make([]tls.Certificate, 1)
-	tlsConfig.Certificates[0], err = tls.LoadX509KeyPair(serverConf.Tls.TlsCert, serverConf.Tls.TlsKey)
-	if err != nil {
-		log.WithFields(log.Fields{"cert": serverConf.Tls.TlsCert, "private_key": serverConf.Tls.TlsKey, "err": err}).Errorln("load LoadX509KeyPair failed!")
-		return tlsConfig, err
-	}
-	return tlsConfig, nil
+func newTlsConfig() *tls.Config {
+	once.Do(func() {
+		if serverConf.Tls.TlsCert == "" || serverConf.Tls.TlsKey == "" {
+			tlsConfig = util.GenerateTLSConfig()
+		} else {
+			var err error
+			tlsConfig = &tls.Config{}
+			tlsConfig.Certificates = make([]tls.Certificate, 1)
+			tlsConfig.Certificates[0], err = tls.LoadX509KeyPair(serverConf.Tls.TlsCert, serverConf.Tls.TlsKey)
+			if err != nil {
+				log.WithFields(log.Fields{"cert": serverConf.Tls.TlsCert, "private_key": serverConf.Tls.TlsKey, "err": err}).Fatalln("load LoadX509KeyPair failed!")
+			}
+		}
+	})
+
+	return tlsConfig
 }
 
 func handleControl(conn net.Conn, sess quic.Session, cch *msg.ClientHello) {

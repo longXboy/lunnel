@@ -19,7 +19,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"io/ioutil"
 	rawLog "log"
 	"net"
@@ -94,13 +93,19 @@ func dialServer(transportMode string) (conn net.Conn, err error) {
 func dialAndRunQuic() {
 	defer time.Sleep(time.Duration(time.Second * reconnectInterval))
 	log.WithFields(log.Fields{"transportMode": "quic"}).Infoln("trying to create control conn to server")
-	tlsConfig, err := LoadTLSConfig([]string{cliConf.Tls.TrustedCert})
-	if err != nil {
-		log.WithFields(log.Fields{"trusted cert": cliConf.Tls.TrustedCert, "err": err}).Fatalln("load tls trusted cert failed!")
-		return
+	var tlsConfig *tls.Config
+	var err error
+	if cliConf.EncryptMode == "none" || cliConf.EncryptMode == "aes" {
+		tlsConfig = &tls.Config{}
+		tlsConfig.InsecureSkipVerify = true
+	} else if cliConf.Tls.TrustedCert != "" {
+		tlsConfig, err = LoadTLSConfig([]string{cliConf.Tls.TrustedCert})
+		if err != nil {
+			log.WithFields(log.Fields{"trusted cert": cliConf.Tls.TrustedCert, "err": err}).Fatalln("load tls trusted cert failed!")
+			return
+		}
+		tlsConfig.ServerName = cliConf.Tls.ServerName
 	}
-	tlsConfig.ServerName = cliConf.Tls.ServerName
-
 	sess, err := transport.CreateQuicSess(cliConf.ServerUdpAddr, tlsConfig)
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warnln("CreateQuicSess failed!")
@@ -114,7 +119,7 @@ func dialAndRunQuic() {
 	}
 	defer stream.Close()
 
-	chello := msg.ClientHello{EncryptMode: "none", EnableCompress: false, Version: version.Version}
+	chello := msg.ClientHello{EncryptMode: cliConf.EncryptMode, EnableCompress: cliConf.EnableCompress, Version: version.Version}
 	err = msg.WriteMsg(stream, msg.TypeClientHello, chello)
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warnln("write ControlClientHello failed!")
@@ -136,7 +141,19 @@ func dialAndRunQuic() {
 	qc := &transport.QuicConn{Sess: sess}
 	qc.Stream = stream
 
-	ctl := NewControl(qc, sess, cliConf.EncryptMode, "quic", tunnels, &tunnelsLock)
+	var underlyingConn net.Conn = qc
+	if cliConf.EncryptMode == "aes" {
+		underlyingConn, err = crypto.NewCryptoStream(underlyingConn, []byte(cliConf.Aes.SecretKey))
+		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Errorln("client hello,crypto.NewCryptoConn failed!")
+			return
+		}
+	}
+	if cliConf.EnableCompress {
+		underlyingConn = transport.NewCompStream(underlyingConn)
+	}
+
+	ctl := NewControl(underlyingConn, sess, cliConf.EncryptMode, "quic", tunnels, &tunnelsLock)
 	err = ctl.clientHandShake()
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Warnln("control.ClientHandShake failed!")
@@ -179,7 +196,7 @@ func dialAndRun(transportMode string) {
 	} else if mType == msg.TypeServerHello {
 		log.Debugln("recv msg serer hello success")
 	}
-	var underlyingConn io.ReadWriteCloser
+	var underlyingConn net.Conn
 	if cliConf.EncryptMode == "tls" {
 		tlsConfig, err := LoadTLSConfig([]string{cliConf.Tls.TrustedCert})
 		if err != nil {
@@ -307,7 +324,7 @@ func Main(configDetail []byte, configType string) {
 	var transportMode string
 	var transportRetry int
 	if cliConf.Transport == "mix" {
-		transportMode = "kcp"
+		transportMode = "udp"
 	} else {
 		transportMode = cliConf.Transport
 	}
@@ -316,16 +333,20 @@ func Main(configDetail []byte, configType string) {
 		if cliConf.Transport == "mix" {
 			transportRetry++
 			if transportRetry >= 3 {
-				if transportMode == "kcp" {
+				if transportMode == "udp" {
 					transportMode = "tcp"
 				} else {
-					transportMode = "kcp"
+					transportMode = "udp"
 				}
 				transportRetry = 0
 				log.WithFields(log.Fields{"transport": transportMode}).Infoln("switch to new transport protocol")
 			}
 		}
-		dialAndRun(transportMode)
+		if transportMode == "udp" {
+			dialAndRunQuic()
+		} else {
+			dialAndRun(transportMode)
+		}
 		if time.Now().Sub(start) > time.Duration(cliConf.Health.TimeOut*int64(time.Second)*3) {
 			transportRetry = 0
 		}

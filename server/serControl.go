@@ -750,7 +750,7 @@ func PipeHandShake(conn net.Conn, phs *msg.PipeClientHello) error {
 	smuxConfig.IdleStreamTimeout = time.Minute * 30
 	var err error
 	var sess *smux.Session
-	var underlyingConn io.ReadWriteCloser
+	var underlyingConn net.Conn
 	if ctl.encryptMode != "none" {
 		prf := crypto.NewPrf12()
 		var masterKey []byte = make([]byte, 16)

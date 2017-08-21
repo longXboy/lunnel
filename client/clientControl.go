@@ -417,6 +417,7 @@ func (c *Control) Run() {
 		go c.serveHttp(lis)
 	}
 
+	go c.listenAndServe()
 	go c.recvLoop()
 	go c.writeLoop()
 
@@ -526,7 +527,7 @@ func (c *Control) pipeHandShake(conn net.Conn) (*smux.Session, error) {
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.MaxReceiveBuffer = 1194304
 	var mux *smux.Session
-	var underlyingConn io.ReadWriteCloser
+	var underlyingConn net.Conn
 	if c.encryptMode != "none" {
 		prf := crypto.NewPrf12()
 		var masterKey []byte = make([]byte, 16)

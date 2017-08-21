@@ -6,7 +6,7 @@ Lunnel is an easy to use intranet NAT traversal, reverse proxy software, support
 
 ## Feature
 
-1. Tunnel connection using TCP, KCP automatic switching mode, the tunnel transmission protocol can be replaced.
+1. Tunnel connection using TCP, QUIC automatic switching mode, the tunnel transmission protocol can be replaced.
 2. Support AES, TLS encryption, the client and the server to establish a tunnel only a key exchange handshake, the establishment of faster connection.
 3. Self-built tunnel connection pool, to ensure high access under the smooth access.
 4. Single connection support multi-channel (similar to http 2.0), more resources.

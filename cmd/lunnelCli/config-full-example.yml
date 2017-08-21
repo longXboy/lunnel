@@ -36,7 +36,7 @@ encrypt_mode: none
 tls:
   #如果服务器使用的是自签名证书，需要配置可信任的根证书
   trusted_cert: ./cacert-example.pem
-  #如果server_addr中填写的不是域名而是IP地址的话，必须要指定server_name，否则会握手失败
+  #如果server_addr中填写的不是域名而是IP地址的话，必须要指定server_name，否则会tls握手失败
   server_name: example.com
 #aes加密的配置，如果未配置encrypt_mode和tls则默认使用aes加密
 aes:
@@ -44,7 +44,7 @@ aes:
   secret_key: password
 #数据传输是否启用压缩
 enable_compress: true
-#底层传输协议，可以是mix、tcp、kcp，如果定义为mix，则会混合使用tcp和kcp
+#底层传输协议，可以是mix、tcp、udp，如果定义为mix，则会混合使用tcp和udp
 transport: mix
 #http_proxy地址，如果指定了该字段，则底层传输协议必须为tcp
 http_proxy: http://127.0.0.1:8888

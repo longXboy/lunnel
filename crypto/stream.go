@@ -17,13 +17,13 @@ package crypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"io"
+	"net"
 )
 
 var initialVector = []byte{55, 33, 111, 156, 18, 172, 34, 2, 164, 99, 252, 122, 252, 133, 12, 55, 167, 115, 79, 156, 18, 172, 27, 1, 164, 21, 242, 193, 252, 120, 230, 107}
 
 type cryptoStream struct {
-	rawConn   io.ReadWriteCloser
+	net.Conn
 	encbuf    []byte
 	decbuf    []byte
 	temp      []byte
@@ -33,9 +33,9 @@ type cryptoStream struct {
 	blockSize int
 }
 
-func NewCryptoStream(conn io.ReadWriteCloser, key []byte) (*cryptoStream, error) {
+func NewCryptoStream(conn net.Conn, key []byte) (*cryptoStream, error) {
 	c := new(cryptoStream)
-	c.rawConn = conn
+	c.Conn = conn
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func NewCryptoStream(conn io.ReadWriteCloser, key []byte) (*cryptoStream, error)
 }
 
 func (c *cryptoStream) Read(b []byte) (n int, err error) {
-	nRead, err := c.rawConn.Read(b)
+	nRead, err := c.Conn.Read(b)
 	if err != nil {
 		return nRead, err
 	}
@@ -66,11 +66,7 @@ func (c *cryptoStream) Read(b []byte) (n int, err error) {
 
 func (c *cryptoStream) Write(b []byte) (n int, err error) {
 	c.encrypt(b, b)
-	return c.rawConn.Write(b)
-}
-
-func (c *cryptoStream) Close() error {
-	return c.rawConn.Close()
+	return c.Conn.Write(b)
 }
 
 //http://blog.csdn.net/charleslei/article/details/48710293

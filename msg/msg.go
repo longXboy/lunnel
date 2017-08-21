@@ -201,6 +201,8 @@ func readMsg(r TimeOutReadWriteCloser) (MsgType, interface{}, error) {
 		out = new(ClientHello)
 	} else if MsgType(header[0]) == TypeError {
 		out = new(Error)
+	} else if MsgType(header[0]) == TypeTunnelName {
+		out = new(TunnelName)
 	} else {
 		return 0, nil, errors.Errorf("invalid msg type %d", header[0])
 	}
