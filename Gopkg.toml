@@ -23,7 +23,7 @@
 
 [[constraint]]
   name = "github.com/Sirupsen/logrus"
-  version = "1.0.2"
+  version = "1.0.3"
 
 [[constraint]]
   branch = "master"
@@ -56,10 +56,6 @@
 [[constraint]]
   branch = "master"
   name = "github.com/yvasiyarov/gorelic"
-
-[[constraint]]
-  name = "gopkg.in/gin-gonic/gin.v1"
-  version = "1.2.0"
 
 [[constraint]]
   branch = "v2"
